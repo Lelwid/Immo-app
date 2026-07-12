@@ -1,0 +1,900 @@
+"use client";
+
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import type { ReactNode } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { RouteShell } from "@/app/components/route-shell";
+import { NotesPanel } from "@/components/NotesPanel";
+import { TaskComposer } from "@/components/TaskComposer";
+import { getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
+import {
+  archiveTenantAndEndActiveLeases,
+  assignTenantToUnit,
+  getCurrentUnitForTenant,
+  isUnitAvailableForLease,
+  updateTenantProfile,
+} from "@/lib/data/leaseAssignmentService";
+import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
+import { currency, getPropertyName, paymentStatusLabel, rentPaymentStatusLabel } from "@/lib/mockData";
+import type { LocalStore, PaymentRecord, PaymentStatus, Tenant, Unit } from "@/lib/types";
+import { useLocalStore } from "@/lib/useLocalStore";
+
+type TenantDrawerTab = "resume" | "bail" | "paiements" | "documents" | "historique" | "notes";
+type TenantForm = Pick<Tenant, "firstName" | "lastName" | "email" | "phone">;
+type NewTenantForm = {
+  fullName: string;
+  email: string;
+  phone: string;
+  propertyId: string;
+  unitId: string;
+  monthlyRent: string;
+  leaseStartDate: string;
+  leaseEndDate: string;
+  paymentStatus: PaymentStatus;
+  notes: string;
+};
+
+type TenantRow = {
+  tenant: Tenant;
+  unit: Unit | null;
+  occupancy: UnitOccupationView | null;
+  propertyName: string;
+  latestPayment: PaymentRecord | null;
+  documentsCount: number;
+};
+
+const tenantTabs: { label: string; value: TenantDrawerTab }[] = [
+  { label: "Résumé", value: "resume" },
+  { label: "Bail", value: "bail" },
+  { label: "Paiements", value: "paiements" },
+  { label: "Documents", value: "documents" },
+  { label: "Historique", value: "historique" },
+  { label: "Notes", value: "notes" },
+];
+
+export default function LocatairesPage() {
+  return (
+    <Suspense fallback={null}>
+      <LocatairesContent />
+    </Suspense>
+  );
+}
+
+function LocatairesContent() {
+  const { store, setStore } = useLocalStore();
+  const searchParams = useSearchParams();
+  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(true);
+  const [snapshotError, setSnapshotError] = useState("");
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(() => searchParams.get("tenant"));
+  const [activeTab, setActiveTab] = useState<TenantDrawerTab>("resume");
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [tenantToDelete, setTenantToDelete] = useState<Tenant | null>(null);
+  const [showCreateTenantModal, setShowCreateTenantModal] = useState(false);
+  const [newTenantForm, setNewTenantForm] = useState<NewTenantForm>(() => createEmptyTenantForm(store));
+  const snapshotStore = snapshot ?? store;
+  const rows = useMemo(() => getTenantRows(snapshotStore), [snapshotStore]);
+  const summary = useMemo(() => getTenantSummary(snapshotStore), [snapshotStore]);
+  const selectedTenant = snapshotStore.tenants.find((tenant) => tenant.id === selectedTenantId) ?? null;
+
+  useEffect(() => {
+    let active = true;
+
+    loadPortfolioSnapshot()
+      .then((nextSnapshot) => {
+        if (!active) {
+          return;
+        }
+
+        setSnapshot(nextSnapshot);
+        setSnapshotError("");
+      })
+      .catch((error) => {
+        console.error("Impossible de charger les locataires depuis le snapshot.", error);
+        if (active) {
+          setSnapshotError("Impossible de synchroniser les locataires. Les données locales sont affichées.");
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setSnapshotLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function refreshTenantSnapshot() {
+    try {
+      const nextSnapshot = await refreshSnapshot();
+      setSnapshot(nextSnapshot);
+      setSnapshotError("");
+    } catch (error) {
+      console.error("Impossible de rafraîchir les locataires.", error);
+      setSnapshotError("Impossible de rafraîchir les locataires. Les données locales sont affichées.");
+    }
+  }
+
+  function openTenant(tenant: Tenant, tab: TenantDrawerTab = "resume") {
+    setSelectedTenantId(tenant.id);
+    setActiveTab(tab);
+  }
+
+  function openCreateTenantModal() {
+    setNewTenantForm(createEmptyTenantForm(snapshotStore));
+    setShowCreateTenantModal(true);
+  }
+
+  async function saveNewTenant() {
+    if (!isNewTenantFormValid(newTenantForm)) {
+      return;
+    }
+
+    const nextStore = await assignTenantToUnit(snapshotStore, {
+      propertyId: newTenantForm.propertyId,
+      unitId: newTenantForm.unitId,
+      fullName: newTenantForm.fullName,
+      email: newTenantForm.email,
+      phone: newTenantForm.phone,
+      monthlyRent: Number(newTenantForm.monthlyRent),
+      leaseStartDate: newTenantForm.leaseStartDate,
+      leaseEndDate: newTenantForm.leaseEndDate,
+      paymentStatus: newTenantForm.paymentStatus,
+      notes: newTenantForm.notes,
+    });
+
+    setStore(nextStore);
+    await refreshTenantSnapshot();
+    setShowCreateTenantModal(false);
+  }
+
+  async function saveTenant(form: TenantForm) {
+    if (!editingTenant) {
+      return;
+    }
+
+    setStore(await updateTenantProfile(snapshotStore, editingTenant.id, form));
+    await refreshTenantSnapshot();
+
+    setEditingTenant(null);
+  }
+
+  async function deleteTenant() {
+    if (!tenantToDelete) {
+      return;
+    }
+
+    setStore(await archiveTenantAndEndActiveLeases(snapshotStore, tenantToDelete.id));
+    await refreshTenantSnapshot();
+
+    if (selectedTenantId === tenantToDelete.id) {
+      setSelectedTenantId(null);
+    }
+
+    setTenantToDelete(null);
+  }
+
+  return (
+    <RouteShell title="Locataires" description="Gestion indépendante des locataires, baux, paiements et documents associés.">
+      <section className="grid gap-5">
+        {snapshotLoading ? <p className="text-sm text-[var(--muted)]">Synchronisation des locataires...</p> : null}
+        {snapshotError ? <p className="text-sm font-semibold text-[color:var(--amber)]">{snapshotError}</p> : null}
+
+        <div className="grid gap-3 md:grid-cols-4">
+          <Metric label="Locataires actifs" value={summary.activeTenants.toString()} />
+          <Metric label="Locataires en retard" value={summary.lateTenants.toString()} />
+          <Metric label="Baux actifs" value={summary.activeLeases.toString()} />
+          <Metric label="Logements vacants" value={summary.vacantUnits.toString()} />
+        </div>
+
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+          <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-[var(--foreground)]">Répertoire des locataires</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">{rows.length} locataires au portefeuille</p>
+            </div>
+            <button className="btn-primary" onClick={openCreateTenantModal} type="button">
+              Ajouter un locataire
+            </button>
+          </div>
+
+          <div className="custom-scrollbar overflow-x-auto rounded-lg border border-[var(--border)]">
+            <div className="min-w-[1180px]">
+              <div className="grid grid-cols-[1.2fr_1.1fr_0.8fr_0.7fr_0.8fr_0.8fr_1.2fr] gap-3 bg-[var(--surface-2)] px-4 py-3 text-xs font-semibold uppercase text-[var(--muted)]">
+                <span>Nom</span>
+                <span>Immeuble</span>
+                <span>Logement</span>
+                <span>Loyer</span>
+                <span>Statut paiement</span>
+                <span>Fin du bail</span>
+                <span>Téléphone / courriel</span>
+              </div>
+              {rows.map((row) => (
+                <button
+                  key={row.tenant.id}
+                  aria-label={`Ouvrir le locataire: ${row.tenant.firstName} ${row.tenant.lastName}`}
+                  className="group grid w-full cursor-pointer grid-cols-[1.2fr_1.1fr_0.8fr_0.7fr_0.8fr_0.8fr_1.2fr] gap-3 border-t border-[var(--border)] px-4 py-3 text-left text-sm text-[var(--foreground)] transition hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color:var(--accent)]"
+                  onClick={() => openTenant(row.tenant)}
+                  type="button"
+                >
+                  <span className="inline-flex items-start justify-between gap-2 font-semibold transition group-hover:text-[color:var(--accent)]">
+                    {row.tenant.firstName} {row.tenant.lastName}
+                    <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[color:var(--accent)]" aria-hidden="true">
+                      →
+                    </span>
+                  </span>
+                  <span className="text-[var(--muted)]">{row.propertyName}</span>
+                  <span>{row.occupancy?.unitName ?? "Non assigné"}</span>
+                  <span>{row.occupancy ? currency.format(row.occupancy.monthlyRent) : "—"}</span>
+                  <span>{row.occupancy ? <PaymentBadge status={row.occupancy.paymentStatus} /> : "—"}</span>
+                  <span>{row.occupancy?.leaseEndDate ?? "—"}</span>
+                  <span className="text-[var(--muted)]">
+                    {row.tenant.phone}
+                    <br />
+                    {row.tenant.email}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      </section>
+
+      {selectedTenant ? (
+        <TenantDrawer
+          activeTab={activeTab}
+          onClose={() => setSelectedTenantId(null)}
+          onDelete={setTenantToDelete}
+          onEdit={setEditingTenant}
+          onTabChange={setActiveTab}
+          onDataChanged={refreshTenantSnapshot}
+          store={snapshotStore}
+          tenant={selectedTenant}
+        />
+      ) : null}
+
+      {editingTenant ? (
+        <TenantFormModal
+          tenant={editingTenant}
+          onCancel={() => setEditingTenant(null)}
+          onSave={saveTenant}
+        />
+      ) : null}
+
+      {showCreateTenantModal ? (
+        <NewTenantModal
+          form={newTenantForm}
+          onCancel={() => setShowCreateTenantModal(false)}
+          onChange={setNewTenantForm}
+          onSave={saveNewTenant}
+          store={snapshotStore}
+        />
+      ) : null}
+
+      {tenantToDelete ? (
+        <ConfirmModal
+          title="Archiver le locataire ?"
+          message="Voulez-vous vraiment archiver ce locataire ? Ses baux actifs seront terminés, le logement deviendra vacant et l'historique sera conservé."
+          cancelLabel="Annuler"
+          confirmLabel="Oui, archiver"
+          onCancel={() => setTenantToDelete(null)}
+          onConfirm={deleteTenant}
+        />
+      ) : null}
+    </RouteShell>
+  );
+}
+
+function TenantDrawer({
+  activeTab,
+  onDataChanged,
+  onClose,
+  onDelete,
+  onEdit,
+  onTabChange,
+  store,
+  tenant,
+}: {
+  activeTab: TenantDrawerTab;
+  onDataChanged: () => void | Promise<void>;
+  onClose: () => void;
+  onDelete: (tenant: Tenant) => void;
+  onEdit: (tenant: Tenant) => void;
+  onTabChange: (tab: TenantDrawerTab) => void;
+  store: LocalStore;
+  tenant: Tenant;
+}) {
+  const unit = getCurrentUnitForTenant(tenant.id, store);
+  const occupancy = unit ? getUnitOccupancy(unit, store.leases, store.tenants) : null;
+  const payments = store.payments
+    .filter((payment) => payment.tenantId === tenant.id || payment.unitId === unit?.id)
+    .sort((a, b) => b.month.localeCompare(a.month));
+  const documents = getTenantDocuments(tenant, unit, store);
+  const activities = store.activities
+    .filter((activity) => activity.tenantId === tenant.id || (unit ? activity.unitId === unit.id : false))
+    .sort((a, b) => (b.createdAt ?? `${b.date}T12:00:00`).localeCompare(a.createdAt ?? `${a.date}T12:00:00`));
+  const propertyName = unit ? getPropertyName(unit.propertyId, store) : "Non assigné";
+
+  return (
+    <div className="fixed inset-0 z-50">
+      <button className="absolute inset-0 bg-black/55" aria-label="Fermer le panneau" onClick={onClose} type="button" />
+      <aside className="custom-scrollbar absolute right-0 top-0 h-full w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-[var(--muted)]">Dossier locataire</p>
+            <h2 className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
+              {tenant.firstName} {tenant.lastName}
+            </h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              {propertyName} · {occupancy?.unitName ?? "Aucun logement"}
+            </p>
+          </div>
+          <button className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]" onClick={onClose} type="button">
+            ×
+          </button>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">
+          {tenantTabs.map((tab) => (
+            <button
+              key={tab.value}
+              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                activeTab === tab.value
+                  ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white"
+                  : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)]"
+              }`}
+              onClick={() => onTabChange(tab.value)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-6">
+          {activeTab === "resume" ? <TenantSummaryTab onDataChanged={onDataChanged} occupancy={occupancy} store={store} tenant={tenant} unit={unit} /> : null}
+          {activeTab === "bail" ? <TenantLeaseTab occupancy={occupancy} unit={unit} /> : null}
+          {activeTab === "paiements" ? <TenantPaymentsTab payments={payments} /> : null}
+          {activeTab === "documents" ? <TenantDocumentsTab documents={documents} propertyName={propertyName} unit={unit} /> : null}
+          {activeTab === "historique" ? <TenantHistoryTab activities={activities} store={store} /> : null}
+          {activeTab === "notes" ? (
+            <NotesPanel
+              notesSource={store.notes}
+              onChanged={onDataChanged}
+              propertyId={unit?.propertyId ?? store.properties[0]?.id ?? ""}
+              targetId={tenant.id}
+              targetType="locataire"
+              tenantId={tenant.id}
+              title={`Notes · ${tenant.firstName} ${tenant.lastName}`}
+              unitId={unit?.id}
+            />
+          ) : null}
+        </div>
+
+        <div className="mt-6 grid gap-2 border-t border-[var(--border)] pt-5">
+          <button className="btn-primary" onClick={() => onEdit(tenant)} type="button">
+            Modifier le locataire
+          </button>
+          <button className="btn-secondary" onClick={() => onTabChange("notes")} type="button">
+            Ajouter une note
+          </button>
+          {unit ? (
+            <Link className="btn-secondary text-center" href={`/dashboard?property=${unit.propertyId}&unit=${unit.id}&tab=resume`}>
+              Voir le logement
+            </Link>
+          ) : null}
+          <button className="btn-danger" onClick={() => onDelete(tenant)} type="button">
+            Supprimer
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function TenantSummaryTab({
+  onDataChanged,
+  occupancy,
+  store,
+  tenant,
+  unit,
+}: {
+  onDataChanged: () => void | Promise<void>;
+  occupancy: UnitOccupationView | null;
+  store: LocalStore;
+  tenant: Tenant;
+  unit: Unit | null;
+}) {
+  const latestPayment = unit
+    ? store.payments.filter((payment) => payment.unitId === unit.id).sort((a, b) => b.month.localeCompare(a.month))[0]
+    : null;
+
+  return (
+    <div className="grid gap-3">
+      <InfoCard label="Locataire" value={`${tenant.firstName} ${tenant.lastName}`} />
+      <InfoCard label="Téléphone" value={tenant.phone || "Non renseigné"} />
+      <InfoCard label="Courriel" value={tenant.email || "Non renseigné"} />
+      <InfoCard label="Immeuble" value={unit ? getPropertyName(unit.propertyId, store) : "Non assigné"} />
+      <InfoCard label="Logement" value={occupancy?.unitName ?? "Aucun logement"} />
+      <InfoCard label="Loyer" value={occupancy ? `${currency.format(occupancy.monthlyRent)} / mois` : "—"} />
+      <InfoCard label="Statut paiement" value={latestPayment ? rentPaymentStatusLabel[latestPayment.status] : occupancy ? paymentStatusLabel[occupancy.paymentStatus] : "—"} />
+      <TaskComposer
+        compact
+        onChanged={onDataChanged}
+        propertyId={unit?.propertyId ?? store.properties[0]?.id}
+        storeSource={store}
+        tenantId={tenant.id}
+        title={`Créer une tâche personnelle · ${tenant.firstName} ${tenant.lastName}`}
+        unitId={unit?.id}
+      />
+    </div>
+  );
+}
+
+function TenantLeaseTab({ occupancy, unit }: { occupancy: UnitOccupationView | null; unit: Unit | null }) {
+  if (!unit || !occupancy) {
+    return <EmptyState text="Ce locataire n’est associé à aucun bail actif." />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      <InfoCard label="Logement" value={occupancy.unitName} />
+      <InfoCard label="Début du bail" value={occupancy.leaseStartDate} />
+      <InfoCard label="Fin du bail" value={occupancy.leaseEndDate} />
+      <InfoCard label="Loyer" value={`${currency.format(occupancy.monthlyRent)} / mois`} />
+      <InfoCard label="Statut paiement" value={paymentStatusLabel[occupancy.paymentStatus]} />
+      <InfoCard label="Notes" value={unit.notes || "Aucune note."} />
+    </div>
+  );
+}
+
+function TenantPaymentsTab({ payments }: { payments: PaymentRecord[] }) {
+  if (payments.length === 0) {
+    return <EmptyState text="Aucun paiement associé à ce locataire." />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {payments.map((payment) => (
+        <div key={payment.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="font-semibold text-[var(--foreground)]">{payment.month}</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {currency.format(payment.amountPaid)} / {currency.format(payment.amountDue)}
+              </p>
+            </div>
+            <RentPaymentBadge status={payment.status} />
+          </div>
+          <p className="mt-3 text-sm text-[var(--muted)]">Date prévue: {payment.dueDate}</p>
+          <p className="text-sm text-[var(--muted)]">Paiement: {payment.paidAt || "Non reçu"}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TenantDocumentsTab({
+  documents,
+  propertyName,
+  unit,
+}: {
+  documents: LocalStore["documents"];
+  propertyName: string;
+  unit: Unit | null;
+}) {
+  if (documents.length === 0) {
+    return <EmptyState text="Aucun document associé à ce locataire." />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {documents.map((document) => (
+        <Link
+          key={document.id}
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 transition hover:border-[color:var(--accent)]/60 hover:bg-[var(--surface-3)]"
+          href={`/documents?document=${document.id}`}
+        >
+          <p className="font-semibold text-[var(--foreground)]">{document.name}</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            {propertyName} · {unit?.label ?? "Aucun logement"} · {document.uploadDate}
+          </p>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function TenantHistoryTab({ activities, store }: { activities: LocalStore["activities"]; store: LocalStore }) {
+  if (activities.length === 0) {
+    return <EmptyState text="Aucun historique pour ce locataire." />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {activities.map((activity) => (
+        <div key={activity.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-2.5 py-1 text-xs font-semibold text-[var(--muted)]">
+              {activity.type}
+            </span>
+            <span className="text-xs font-semibold text-[var(--muted)]">{activity.date}</span>
+          </div>
+          <p className="mt-3 font-semibold text-[var(--foreground)]">{activity.title}</p>
+          <p className="mt-1 text-sm leading-6 text-[var(--muted)]">{activity.description}</p>
+          <p className="mt-2 text-xs font-medium text-[var(--muted)]">
+            {activity.propertyId ? getPropertyName(activity.propertyId, store) : "Portefeuille"}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function NewTenantModal({
+  form,
+  onCancel,
+  onChange,
+  onSave,
+  store,
+}: {
+  form: NewTenantForm;
+  onCancel: () => void;
+  onChange: (form: NewTenantForm) => void;
+  onSave: () => void;
+  store: LocalStore;
+}) {
+  const selectedProperty = store.properties.find((property) => property.id === form.propertyId) ?? null;
+  const availableUnits = store.units.filter((unit) => unit.propertyId === form.propertyId && isUnitAvailableForLease(store, unit.id));
+  const canSave = isNewTenantFormValid(form) && availableUnits.some((unit) => unit.id === form.unitId);
+
+  function updateProperty(propertyId: string) {
+    const firstVacantUnit = store.units.find((unit) => unit.propertyId === propertyId && isUnitAvailableForLease(store, unit.id));
+    onChange({ ...form, propertyId, unitId: firstVacantUnit?.id ?? "" });
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="custom-scrollbar max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold uppercase text-[var(--muted)]">Locataires</p>
+            <h2 className="mt-1 text-2xl font-semibold">Nouveau locataire</h2>
+          </div>
+          <button
+            className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]"
+            onClick={onCancel}
+            type="button"
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2">
+          <TextInput label="Nom complet" value={form.fullName} onChange={(fullName) => onChange({ ...form, fullName })} />
+          <TextInput label="Courriel" type="email" value={form.email} onChange={(email) => onChange({ ...form, email })} />
+          <TextInput label="Téléphone" value={form.phone} onChange={(phone) => onChange({ ...form, phone })} />
+          <TextInput label="Loyer mensuel" type="number" value={form.monthlyRent} onChange={(monthlyRent) => onChange({ ...form, monthlyRent })} />
+          <SelectField label="Immeuble" value={form.propertyId} onChange={updateProperty}>
+            {store.properties.length === 0 ? <option value="">Aucun immeuble disponible</option> : null}
+            {store.properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.name}
+              </option>
+            ))}
+          </SelectField>
+          <SelectField
+            label="Logement"
+            value={form.unitId}
+            onChange={(unitId) => onChange({ ...form, unitId })}
+            disabled={!selectedProperty || availableUnits.length === 0}
+          >
+            {availableUnits.length === 0 ? <option value="">Aucun logement vacant</option> : null}
+            {availableUnits.map((unit) => (
+              <option key={unit.id} value={unit.id}>
+                {unit.label} · {unit.floor}
+              </option>
+            ))}
+          </SelectField>
+          <TextInput label="Date de début du bail" type="date" value={form.leaseStartDate} onChange={(leaseStartDate) => onChange({ ...form, leaseStartDate })} />
+          <TextInput label="Date de fin du bail" type="date" value={form.leaseEndDate} onChange={(leaseEndDate) => onChange({ ...form, leaseEndDate })} />
+          <SelectField label="Statut paiement" value={form.paymentStatus} onChange={(paymentStatus) => onChange({ ...form, paymentStatus: paymentStatus as PaymentStatus })}>
+            <option value="paid">Payé</option>
+            <option value="dueSoon">Dû bientôt</option>
+            <option value="late">En retard</option>
+          </SelectField>
+          <label className="grid gap-1 text-sm font-medium text-[var(--muted)] md:col-span-2">
+            Notes optionnelles
+            <textarea
+              className="min-h-24 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
+              value={form.notes}
+              onChange={(event) => onChange({ ...form, notes: event.target.value })}
+            />
+          </label>
+        </div>
+
+        {selectedProperty && availableUnits.length === 0 ? (
+          <p className="mt-4 rounded-md border border-[color:var(--yellow)]/30 bg-[color:var(--yellow)]/10 p-3 text-sm text-[color:var(--yellow)]">
+            Tous les logements de cet immeuble sont déjà occupés. Choisissez un autre immeuble ou libérez un logement avant d&apos;assigner un locataire.
+          </p>
+        ) : (
+          <p className="mt-4 text-sm text-[var(--muted)]">Seuls les logements vacants sont affichés pour éviter une assignation accidentelle.</p>
+        )}
+
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button className="btn-secondary" onClick={onCancel} type="button">
+            Annuler
+          </button>
+          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-40" disabled={!canSave} onClick={onSave} type="button">
+            Enregistrer le locataire
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TenantFormModal({
+  onCancel,
+  onSave,
+  tenant,
+}: {
+  onCancel: () => void;
+  onSave: (form: TenantForm) => void;
+  tenant: Tenant;
+}) {
+  const [form, setForm] = useState<TenantForm>({
+    firstName: tenant.firstName,
+    lastName: tenant.lastName,
+    email: tenant.email,
+    phone: tenant.phone,
+  });
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+        <h2 className="text-2xl font-semibold">Modifier le locataire</h2>
+        <div className="mt-5 grid gap-3">
+          <TextInput label="Prénom" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} />
+          <TextInput label="Nom" value={form.lastName} onChange={(lastName) => setForm({ ...form, lastName })} />
+          <TextInput label="Courriel" type="email" value={form.email} onChange={(email) => setForm({ ...form, email })} />
+          <TextInput label="Téléphone" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
+          <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            <button className="btn-secondary" onClick={onCancel} type="button">
+              Annuler
+            </button>
+            <button className="btn-primary" onClick={() => onSave(form)} type="button">
+              Enregistrer
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal({
+  cancelLabel,
+  confirmLabel,
+  message,
+  onCancel,
+  onConfirm,
+  title,
+}: {
+  cancelLabel: string;
+  confirmLabel: string;
+  message: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+  title: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+        <h2 className="text-xl font-semibold text-[var(--foreground)]">{title}</h2>
+        <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{message}</p>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button className="btn-secondary" onClick={onCancel} type="button">
+            {cancelLabel}
+          </button>
+          <button className="btn-danger" onClick={onConfirm} type="button">
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-4">
+      <p className="text-xs font-medium text-[var(--muted)]">{label}</p>
+      <p className="mt-2 text-xl font-semibold text-[var(--foreground)]">{value}</p>
+    </div>
+  );
+}
+
+function InfoCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
+      <p className="text-xs font-medium uppercase text-[var(--muted)]">{label}</p>
+      <p className="mt-1 font-semibold text-[var(--foreground)]">{value}</p>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm text-[var(--muted)]">{text}</p>;
+}
+
+function PaymentBadge({ status }: { status: Unit["paymentStatus"] }) {
+  const classes = {
+    paid: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
+    dueSoon: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
+    late: "border-[color:var(--red)]/35 bg-[color:var(--red)]/10 text-[color:var(--red)]",
+  };
+
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes[status]}`}>{paymentStatusLabel[status]}</span>;
+}
+
+function RentPaymentBadge({ status }: { status: PaymentRecord["status"] }) {
+  const classes = {
+    payé: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
+    partiel: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
+    "en retard": "border-[color:var(--red)]/35 bg-[color:var(--red)]/10 text-[color:var(--red)]",
+    "à venir": "border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 text-[color:var(--accent)]",
+  };
+
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes[status]}`}>{rentPaymentStatusLabel[status]}</span>;
+}
+
+function TextInput({
+  label,
+  onChange,
+  type = "text",
+  value,
+}: {
+  label: string;
+  onChange: (value: string) => void;
+  type?: string;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
+      {label}
+      <input
+        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
+        type={type}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function SelectField({
+  children,
+  disabled = false,
+  label,
+  onChange,
+  value,
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  label: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  return (
+    <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
+      {label}
+      <select
+        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={disabled}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {children}
+      </select>
+    </label>
+  );
+}
+
+function createEmptyTenantForm(store: LocalStore): NewTenantForm {
+  const firstVacantUnit = store.units.find((unit) => isUnitAvailableForLease(store, unit.id));
+  const firstProperty = firstVacantUnit
+    ? store.properties.find((property) => property.id === firstVacantUnit.propertyId)
+    : store.properties[0];
+
+  return {
+    fullName: "",
+    email: "",
+    phone: "",
+    propertyId: firstProperty?.id ?? "",
+    unitId: firstVacantUnit?.id ?? "",
+    monthlyRent: firstVacantUnit?.monthlyRent ? firstVacantUnit.monthlyRent.toString() : "",
+    leaseStartDate: "2026-07-01",
+    leaseEndDate: "2027-06-30",
+    paymentStatus: "dueSoon",
+    notes: "",
+  };
+}
+
+function isNewTenantFormValid(form: NewTenantForm) {
+  return Boolean(form.fullName.trim() && form.propertyId && form.unitId && Number(form.monthlyRent) > 0);
+}
+
+function getTenantDocuments(tenant: Tenant, unit: Unit | null, store: LocalStore) {
+  const leaseIds = new Set(
+    store.leases
+      .filter((lease) => lease.tenantId === tenant.id || (unit ? lease.unitId === unit.id : false))
+      .map((lease) => lease.id),
+  );
+
+  const documents = store.documents.filter((document) => {
+    if (document.tenantId === tenant.id) {
+      return true;
+    }
+
+    if (unit && document.unitId === unit.id) {
+      return true;
+    }
+
+    if (document.leaseId && leaseIds.has(document.leaseId)) {
+      return true;
+    }
+
+    if (document.relatedEntityId === tenant.id) {
+      return true;
+    }
+
+    if (unit && document.relatedEntityId === unit.id) {
+      return true;
+    }
+
+    return Boolean(document.relatedEntityId && leaseIds.has(document.relatedEntityId));
+  });
+
+  return Array.from(new Map(documents.map((document) => [document.id, document])).values());
+}
+
+function getTenantRows(store: LocalStore): TenantRow[] {
+  return store.tenants
+    .filter((tenant) => !tenant.archivedAt)
+    .map((tenant) => {
+      const unit = getCurrentUnitForTenant(tenant.id, store);
+      const occupancy = unit ? getUnitOccupancy(unit, store.leases, store.tenants) : null;
+      const latestPayment = unit
+        ? store.payments.filter((payment) => payment.unitId === unit.id).sort((a, b) => b.month.localeCompare(a.month))[0] ?? null
+        : null;
+
+      return {
+        tenant,
+        unit,
+        occupancy,
+        propertyName: unit ? getPropertyName(unit.propertyId, store) : "Non assigné",
+        latestPayment,
+        documentsCount: getTenantDocuments(tenant, unit, store).length,
+      };
+    })
+    .sort((a, b) => `${a.tenant.lastName} ${a.tenant.firstName}`.localeCompare(`${b.tenant.lastName} ${b.tenant.firstName}`));
+}
+
+function getTenantSummary(store: LocalStore) {
+  const occupancies = store.units.map((unit) => getUnitOccupancy(unit, store.leases, store.tenants));
+  const activeTenantIds = new Set(occupancies.filter((occupancy) => occupancy.tenantId).map((occupancy) => occupancy.tenantId as string));
+  const lateTenantIds = new Set(
+    store.payments.filter((payment) => payment.status === "en retard" && payment.tenantId).map((payment) => payment.tenantId as string),
+  );
+
+  return {
+    activeTenants: activeTenantIds.size,
+    lateTenants: lateTenantIds.size,
+    activeLeases: occupancies.filter((occupancy) => occupancy.source === "lease" && occupancy.leaseStatus === "active").length,
+    vacantUnits: occupancies.filter((occupancy) => !occupancy.isOccupied).length,
+  };
+}

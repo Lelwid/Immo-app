@@ -1,0 +1,22 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:3000",
+      "localStorage": [
+        {
+          "name": "demoAuth",
+          "value": "true"
+        },
+        {
+          "name": "gestionnaire-immo-onboarding-v1",
+          "value": "demo"
+        },
+        {
+          "name": "theme",
+          "value": "dark"
+        }
+      ]
+    }
+  ]
+}
