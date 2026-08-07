@@ -15,9 +15,11 @@ import {
   isUnitAvailableForLease,
   updateTenantProfile,
 } from "@/lib/data/leaseAssignmentService";
+import { getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
-import { currency, getPropertyName, paymentStatusLabel, rentPaymentStatusLabel } from "@/lib/mockData";
-import type { LocalStore, PaymentRecord, PaymentStatus, Tenant, Unit } from "@/lib/types";
+import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
+import { currency, getPropertyName, rentPaymentStatusLabel } from "@/lib/mockData";
+import type { LocalStore, PaymentRecord, Tenant, Unit } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
 type TenantDrawerTab = "resume" | "bail" | "paiements" | "documents" | "historique" | "notes";
@@ -31,7 +33,9 @@ type NewTenantForm = {
   monthlyRent: string;
   leaseStartDate: string;
   leaseEndDate: string;
-  paymentStatus: PaymentStatus;
+  paymentStatus: InitialPaymentStatus;
+  initialAmountPaid: string;
+  paymentReceivedDate: string;
   notes: string;
 };
 
@@ -40,8 +44,16 @@ type TenantRow = {
   unit: Unit | null;
   occupancy: UnitOccupationView | null;
   propertyName: string;
-  latestPayment: PaymentRecord | null;
+  rentStatus: TenantRentStatusSummary;
   documentsCount: number;
+};
+
+type TenantRentStatus = "late" | "partial" | "dueSoon" | "upcoming" | "paid" | "paidAdvance" | "none";
+
+type TenantRentStatusSummary = {
+  charge: RentChargeRow | null;
+  label: string;
+  status: TenantRentStatus;
 };
 
 const tenantTabs: { label: string; value: TenantDrawerTab }[] = [
@@ -143,6 +155,8 @@ function LocatairesContent() {
       leaseStartDate: newTenantForm.leaseStartDate,
       leaseEndDate: newTenantForm.leaseEndDate,
       paymentStatus: newTenantForm.paymentStatus,
+      initialAmountPaid: Number(newTenantForm.initialAmountPaid),
+      paymentReceivedDate: newTenantForm.paymentReceivedDate,
       notes: newTenantForm.notes,
     });
 
@@ -229,7 +243,7 @@ function LocatairesContent() {
                   <span className="text-[var(--muted)]">{row.propertyName}</span>
                   <span>{row.occupancy?.unitName ?? "Non assigné"}</span>
                   <span>{row.occupancy ? currency.format(row.occupancy.monthlyRent) : "—"}</span>
-                  <span>{row.occupancy ? <PaymentBadge status={row.occupancy.paymentStatus} /> : "—"}</span>
+                  <span><TenantRentStatusBadge summary={row.rentStatus} /></span>
                   <span>{row.occupancy?.leaseEndDate ?? "—"}</span>
                   <span className="text-[var(--muted)]">
                     {row.tenant.phone}
@@ -356,7 +370,7 @@ function TenantDrawer({
 
         <div className="mt-6">
           {activeTab === "resume" ? <TenantSummaryTab onDataChanged={onDataChanged} occupancy={occupancy} store={store} tenant={tenant} unit={unit} /> : null}
-          {activeTab === "bail" ? <TenantLeaseTab occupancy={occupancy} unit={unit} /> : null}
+          {activeTab === "bail" ? <TenantLeaseTab occupancy={occupancy} store={store} unit={unit} /> : null}
           {activeTab === "paiements" ? <TenantPaymentsTab payments={payments} /> : null}
           {activeTab === "documents" ? <TenantDocumentsTab documents={documents} propertyName={propertyName} unit={unit} /> : null}
           {activeTab === "historique" ? <TenantHistoryTab activities={activities} store={store} /> : null}
@@ -408,9 +422,7 @@ function TenantSummaryTab({
   tenant: Tenant;
   unit: Unit | null;
 }) {
-  const latestPayment = unit
-    ? store.payments.filter((payment) => payment.unitId === unit.id).sort((a, b) => b.month.localeCompare(a.month))[0]
-    : null;
+  const rentStatus = getTenantRentStatus(tenant.id, store);
 
   return (
     <div className="grid gap-3">
@@ -420,7 +432,7 @@ function TenantSummaryTab({
       <InfoCard label="Immeuble" value={unit ? getPropertyName(unit.propertyId, store) : "Non assigné"} />
       <InfoCard label="Logement" value={occupancy?.unitName ?? "Aucun logement"} />
       <InfoCard label="Loyer" value={occupancy ? `${currency.format(occupancy.monthlyRent)} / mois` : "—"} />
-      <InfoCard label="Statut paiement" value={latestPayment ? rentPaymentStatusLabel[latestPayment.status] : occupancy ? paymentStatusLabel[occupancy.paymentStatus] : "—"} />
+      <InfoCard label="Statut paiement" value={rentStatus.label} />
       <TaskComposer
         compact
         onChanged={onDataChanged}
@@ -434,10 +446,12 @@ function TenantSummaryTab({
   );
 }
 
-function TenantLeaseTab({ occupancy, unit }: { occupancy: UnitOccupationView | null; unit: Unit | null }) {
+function TenantLeaseTab({ occupancy, store, unit }: { occupancy: UnitOccupationView | null; store: LocalStore; unit: Unit | null }) {
   if (!unit || !occupancy) {
     return <EmptyState text="Ce locataire n’est associé à aucun bail actif." />;
   }
+
+  const rentStatus = getTenantRentStatus(occupancy.tenantId, store);
 
   return (
     <div className="grid gap-3">
@@ -445,12 +459,11 @@ function TenantLeaseTab({ occupancy, unit }: { occupancy: UnitOccupationView | n
       <InfoCard label="Début du bail" value={occupancy.leaseStartDate} />
       <InfoCard label="Fin du bail" value={occupancy.leaseEndDate} />
       <InfoCard label="Loyer" value={`${currency.format(occupancy.monthlyRent)} / mois`} />
-      <InfoCard label="Statut paiement" value={paymentStatusLabel[occupancy.paymentStatus]} />
+      <InfoCard label="Statut paiement" value={rentStatus.label} />
       <InfoCard label="Notes" value={unit.notes || "Aucune note."} />
     </div>
   );
 }
-
 function TenantPaymentsTab({ payments }: { payments: PaymentRecord[] }) {
   if (payments.length === 0) {
     return <EmptyState text="Aucun paiement associé à ce locataire." />;
@@ -601,11 +614,32 @@ function NewTenantModal({
           </SelectField>
           <TextInput label="Date de début du bail" type="date" value={form.leaseStartDate} onChange={(leaseStartDate) => onChange({ ...form, leaseStartDate })} />
           <TextInput label="Date de fin du bail" type="date" value={form.leaseEndDate} onChange={(leaseEndDate) => onChange({ ...form, leaseEndDate })} />
-          <SelectField label="Statut paiement" value={form.paymentStatus} onChange={(paymentStatus) => onChange({ ...form, paymentStatus: paymentStatus as PaymentStatus })}>
+          <SelectField
+            label="Statut paiement"
+            value={form.paymentStatus}
+            onChange={(paymentStatus) => onChange(updateNewTenantPaymentStatus(form, paymentStatus as InitialPaymentStatus))}
+          >
             <option value="paid">Payé</option>
+            <option value="partial">Partiel</option>
             <option value="dueSoon">Dû bientôt</option>
             <option value="late">En retard</option>
           </SelectField>
+          {form.paymentStatus === "partial" ? (
+            <TextInput
+              label="Montant reçu"
+              type="number"
+              value={form.initialAmountPaid}
+              onChange={(initialAmountPaid) => onChange({ ...form, initialAmountPaid })}
+            />
+          ) : null}
+          {form.paymentStatus === "paid" || form.paymentStatus === "partial" ? (
+            <TextInput
+              label="Date de réception du paiement"
+              type="date"
+              value={form.paymentReceivedDate}
+              onChange={(paymentReceivedDate) => onChange({ ...form, paymentReceivedDate })}
+            />
+          ) : null}
           <label className="grid gap-1 text-sm font-medium text-[var(--muted)] md:col-span-2">
             Notes optionnelles
             <textarea
@@ -731,14 +765,18 @@ function EmptyState({ text }: { text: string }) {
   return <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm text-[var(--muted)]">{text}</p>;
 }
 
-function PaymentBadge({ status }: { status: Unit["paymentStatus"] }) {
+function TenantRentStatusBadge({ summary }: { summary: TenantRentStatusSummary }) {
   const classes = {
+    none: "border-slate-500/30 bg-slate-500/10 text-slate-300",
     paid: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
+    paidAdvance: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
+    partial: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
     dueSoon: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
+    upcoming: "border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 text-[color:var(--accent)]",
     late: "border-[color:var(--red)]/35 bg-[color:var(--red)]/10 text-[color:var(--red)]",
   };
 
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes[status]}`}>{paymentStatusLabel[status]}</span>;
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes[summary.status]}`}>{summary.label}</span>;
 }
 
 function RentPaymentBadge({ status }: { status: PaymentRecord["status"] }) {
@@ -820,12 +858,43 @@ function createEmptyTenantForm(store: LocalStore): NewTenantForm {
     leaseStartDate: "2026-07-01",
     leaseEndDate: "2027-06-30",
     paymentStatus: "dueSoon",
+    initialAmountPaid: "",
+    paymentReceivedDate: "",
     notes: "",
   };
 }
 
 function isNewTenantFormValid(form: NewTenantForm) {
-  return Boolean(form.fullName.trim() && form.propertyId && form.unitId && Number(form.monthlyRent) > 0);
+  return Boolean(
+    form.fullName.trim() &&
+      form.propertyId &&
+      form.unitId &&
+      Number(form.monthlyRent) > 0 &&
+      form.leaseStartDate &&
+      form.leaseEndDate &&
+      (form.paymentStatus !== "paid" && form.paymentStatus !== "partial" || isPaymentReceivedDateValid(form.paymentReceivedDate)) &&
+      (form.paymentStatus !== "partial" || isPartialPaymentAmountValid(form.initialAmountPaid, form.monthlyRent)),
+  );
+}
+
+function updateNewTenantPaymentStatus(form: NewTenantForm, paymentStatus: InitialPaymentStatus): NewTenantForm {
+  return {
+    ...form,
+    paymentStatus,
+    initialAmountPaid: paymentStatus === "partial" ? form.initialAmountPaid : "",
+    paymentReceivedDate: paymentStatus === "paid" || paymentStatus === "partial" ? form.paymentReceivedDate || getTodayIsoDate() : "",
+  };
+}
+
+function isPaymentReceivedDateValid(paymentReceivedDate: string) {
+  return Boolean(paymentReceivedDate) && paymentReceivedDate <= getTodayIsoDate();
+}
+
+function isPartialPaymentAmountValid(initialAmountPaid: string, monthlyRent: string) {
+  const amountPaid = Number(initialAmountPaid);
+  const amountDue = Number(monthlyRent);
+
+  return amountPaid > 0 && amountPaid < amountDue;
 }
 
 function getTenantDocuments(tenant: Tenant, unit: Unit | null, store: LocalStore) {
@@ -862,22 +931,156 @@ function getTenantDocuments(tenant: Tenant, unit: Unit | null, store: LocalStore
   return Array.from(new Map(documents.map((document) => [document.id, document])).values());
 }
 
+function getTenantRentStatus(
+  tenantId: string | null | undefined,
+  store: LocalStore,
+  ledgerRows: RentChargeRow[] = buildRentLedger(store).rows,
+): TenantRentStatusSummary {
+  if (!tenantId) {
+    return {
+      charge: null,
+      label: "Aucun loyer actif",
+      status: "none",
+    };
+  }
+
+  const activeLeases = store.leases.filter((lease) => lease.tenantId === tenantId && lease.status === "active");
+
+  if (activeLeases.length === 0) {
+    return {
+      charge: null,
+      label: "Aucun loyer actif",
+      status: "none",
+    };
+  }
+
+  const activeLeaseIds = new Set(activeLeases.map((lease) => lease.id));
+  const tenantCharges = ledgerRows.filter((charge) => activeLeaseIds.has(charge.leaseId) || charge.tenantId === tenantId);
+  const today = getTodayIsoDate();
+  const currentMonth = today.slice(0, 7);
+  const overdueCharge = tenantCharges
+    .filter((charge) => charge.balance > 0 && charge.dueDate < today)
+    .sort(compareDueDateAscending)[0];
+
+  if (overdueCharge) {
+    return summarizeTenantCharge(overdueCharge, today);
+  }
+
+  const currentPartialCharge = tenantCharges
+    .filter((charge) => charge.periodMonth === currentMonth && charge.balance > 0 && charge.amountAllocated > 0)
+    .sort(compareDueDateAscending)[0];
+
+  if (currentPartialCharge) {
+    return summarizeTenantCharge(currentPartialCharge, today);
+  }
+
+  const currentCharge = tenantCharges
+    .filter((charge) => charge.periodMonth === currentMonth)
+    .sort(compareDueDateAscending)[0];
+
+  if (currentCharge) {
+    return summarizeTenantCharge(currentCharge, today);
+  }
+
+  const futureUnpaidCharge = tenantCharges
+    .filter((charge) => charge.balance > 0 && charge.dueDate > today)
+    .sort(compareDueDateAscending)[0];
+
+  if (futureUnpaidCharge) {
+    return summarizeTenantCharge(futureUnpaidCharge, today);
+  }
+
+  const futurePaidCharge = tenantCharges
+    .filter((charge) => charge.balance <= 0 && charge.dueDate > today)
+    .sort(compareDueDateAscending)[0];
+
+  if (futurePaidCharge) {
+    return summarizeTenantCharge(futurePaidCharge, today);
+  }
+
+  const latestPaidCharge = tenantCharges
+    .filter((charge) => charge.balance <= 0)
+    .sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
+
+  if (latestPaidCharge) {
+    return summarizeTenantCharge(latestPaidCharge, today);
+  }
+
+  return {
+    charge: null,
+    label: "Aucun loyer actif",
+    status: "none",
+  };
+}
+
+function summarizeTenantCharge(charge: RentChargeRow, today: string): TenantRentStatusSummary {
+  if (charge.balance <= 0) {
+    const paidInAdvance = Boolean(charge.lastPaymentAt) && charge.lastPaymentAt < charge.dueDate;
+
+    return {
+      charge,
+      label: paidInAdvance ? "Payé d'avance" : "Payé",
+      status: paidInAdvance ? "paidAdvance" : "paid",
+    };
+  }
+
+  if (charge.amountAllocated > 0) {
+    return {
+      charge,
+      label: "Partiel",
+      status: "partial",
+    };
+  }
+
+  if (charge.dueDate < today) {
+    return {
+      charge,
+      label: "En retard",
+      status: "late",
+    };
+  }
+
+  if (charge.dueDate > today && charge.dueDate <= addDaysIsoDate(today, 7)) {
+    return {
+      charge,
+      label: "Dû bientôt",
+      status: "dueSoon",
+    };
+  }
+
+  return {
+    charge,
+    label: "À venir",
+    status: "upcoming",
+  };
+}
+
+function compareDueDateAscending(a: RentChargeRow, b: RentChargeRow) {
+  return a.dueDate.localeCompare(b.dueDate);
+}
+
+function addDaysIsoDate(date: string, days: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const nextDate = new Date(year, month - 1, day + days);
+
+  return `${nextDate.getFullYear()}-${`${nextDate.getMonth() + 1}`.padStart(2, "0")}-${`${nextDate.getDate()}`.padStart(2, "0")}`;
+}
+
 function getTenantRows(store: LocalStore): TenantRow[] {
+  const ledgerRows = buildRentLedger(store).rows;
+
   return store.tenants
     .filter((tenant) => !tenant.archivedAt)
     .map((tenant) => {
       const unit = getCurrentUnitForTenant(tenant.id, store);
       const occupancy = unit ? getUnitOccupancy(unit, store.leases, store.tenants) : null;
-      const latestPayment = unit
-        ? store.payments.filter((payment) => payment.unitId === unit.id).sort((a, b) => b.month.localeCompare(a.month))[0] ?? null
-        : null;
 
       return {
         tenant,
         unit,
         occupancy,
         propertyName: unit ? getPropertyName(unit.propertyId, store) : "Non assigné",
-        latestPayment,
+        rentStatus: getTenantRentStatus(tenant.id, store, ledgerRows),
         documentsCount: getTenantDocuments(tenant, unit, store).length,
       };
     })
@@ -887,8 +1090,9 @@ function getTenantRows(store: LocalStore): TenantRow[] {
 function getTenantSummary(store: LocalStore) {
   const occupancies = store.units.map((unit) => getUnitOccupancy(unit, store.leases, store.tenants));
   const activeTenantIds = new Set(occupancies.filter((occupancy) => occupancy.tenantId).map((occupancy) => occupancy.tenantId as string));
+  const ledgerRows = buildRentLedger(store).rows;
   const lateTenantIds = new Set(
-    store.payments.filter((payment) => payment.status === "en retard" && payment.tenantId).map((payment) => payment.tenantId as string),
+    [...activeTenantIds].filter((tenantId) => getTenantRentStatus(tenantId, store, ledgerRows).status === "late"),
   );
 
   return {

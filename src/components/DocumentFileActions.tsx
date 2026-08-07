@@ -20,6 +20,14 @@ export function DocumentFileActions({
   if (!hasDocumentFile(document)) {
     return (
       <span className="rounded-md border border-[var(--border)] bg-[var(--surface-3)] px-3 py-2 text-xs font-semibold text-[var(--muted)]">
+        Aucun fichier téléversé
+      </span>
+    );
+  }
+
+  if (false && !hasDocumentFile(document)) {
+    return (
+      <span className="rounded-md border border-[var(--border)] bg-[var(--surface-3)] px-3 py-2 text-xs font-semibold text-[var(--muted)]">
         Métadonnées
       </span>
     );

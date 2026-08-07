@@ -1,4 +1,4 @@
-import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { getDataMode, shouldUseSupabase } from "@/lib/data/dataMode";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { Lease, RentPaymentStatus } from "@/lib/types";
@@ -12,10 +12,13 @@ type SupabaseLeaseRow = {
   tenant_id: string;
   start_date: string;
   end_date: string;
+  actual_end_date?: string | null;
   monthly_rent: number | string;
   payment_status: string | null;
   status: string | null;
   notes: string | null;
+  termination_reason?: string | null;
+  termination_notes?: string | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -32,21 +35,47 @@ export type LeaseInput = {
   notes?: string;
 };
 
+export type LeaseTerminationInput = {
+  actualEndDate: string;
+  terminationNotes?: string;
+  terminationReason?: string;
+};
+
 const loadError = "Impossible de charger les baux.";
 const createError = "Impossible de créer le bail.";
 const updateError = "Impossible de modifier le bail.";
 const deleteError = "Impossible de supprimer le bail.";
 const activeLeaseError = "Ce logement possède déjà un bail actif.";
+const baseSelectColumns = "id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at";
+const selectColumns =
+  "id,property_id,unit_id,tenant_id,start_date,end_date,actual_end_date,monthly_rent,payment_status,status,notes,termination_reason,termination_notes,created_at,updated_at";
+const activeLeaseWriteSelectColumns = baseSelectColumns;
 
 export async function getLeases(): Promise<Lease[]> {
   if (canUseSupabase()) {
+    const queryContext: LeaseQueryContext = {
+      filters: [],
+      operation: "getLeases",
+      order: "start_date desc",
+      selectedColumns: selectColumns,
+    };
     const { data, error } = await supabase!
       .from(table)
-      .select("id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at")
+      .select(selectColumns)
       .order("start_date", { ascending: false });
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      await logSupabaseLeaseError(error, queryContext);
+
+      if (isMissingTerminationColumnError(error)) {
+        return getLeasesWithBaseColumns(queryContext);
+      }
+
+      throw createLeaseServiceError(loadError, error);
+    }
+
+    if (!data) {
+      throw createLeaseServiceError(loadError);
     }
 
     return data.map(fromSupabaseRow);
@@ -57,14 +86,30 @@ export async function getLeases(): Promise<Lease[]> {
 
 export async function getLeasesByProperty(propertyId: string): Promise<Lease[]> {
   if (canUseSupabase()) {
+    const queryContext: LeaseQueryContext = {
+      filters: [`property_id = ${propertyId}`],
+      operation: "getLeasesByProperty",
+      order: "start_date desc",
+      selectedColumns: selectColumns,
+    };
     const { data, error } = await supabase!
       .from(table)
-      .select("id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at")
+      .select(selectColumns)
       .eq("property_id", propertyId)
       .order("start_date", { ascending: false });
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      await logSupabaseLeaseError(error, queryContext);
+
+      if (isMissingTerminationColumnError(error)) {
+        return getLeasesByPropertyWithBaseColumns(propertyId, queryContext);
+      }
+
+      throw createLeaseServiceError(loadError, error);
+    }
+
+    if (!data) {
+      throw createLeaseServiceError(loadError);
     }
 
     return data.map(fromSupabaseRow);
@@ -75,15 +120,27 @@ export async function getLeasesByProperty(propertyId: string): Promise<Lease[]> 
 
 export async function getActiveLeaseByUnit(unitId: string): Promise<Lease | null> {
   if (canUseSupabase()) {
+    const queryContext: LeaseQueryContext = {
+      filters: [`unit_id = ${unitId}`, "status = active"],
+      operation: "getActiveLeaseByUnit",
+      order: "none",
+      selectedColumns: selectColumns,
+    };
     const { data, error } = await supabase!
       .from(table)
-      .select("id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at")
+      .select(selectColumns)
       .eq("unit_id", unitId)
       .eq("status", "active")
       .maybeSingle();
 
     if (error) {
-      throw new Error(loadError);
+      await logSupabaseLeaseError(error, queryContext);
+
+      if (isMissingTerminationColumnError(error)) {
+        return getActiveLeaseByUnitWithBaseColumns(unitId, queryContext);
+      }
+
+      throw createLeaseServiceError(loadError, error);
     }
 
     return data ? fromSupabaseRow(data) : null;
@@ -99,7 +156,7 @@ export async function createLease(input: LeaseInput): Promise<Lease> {
     const { data, error } = await supabase!
       .from(table)
       .insert(toSupabaseInsert(leaseInput))
-      .select("id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at")
+      .select(activeLeaseWriteSelectColumns)
       .single();
 
     if (error || !data) {
@@ -107,7 +164,7 @@ export async function createLease(input: LeaseInput): Promise<Lease> {
         throw new Error(activeLeaseError);
       }
 
-      throw new Error(createError);
+      throw createLeaseServiceError(createError, error);
     }
 
     return fromSupabaseRow(data);
@@ -143,7 +200,7 @@ export async function updateLease(leaseId: string, input: LeaseInput): Promise<L
       .from(table)
       .update(toSupabaseInsert(leaseInput))
       .eq("id", leaseId)
-      .select("id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at")
+      .select(activeLeaseWriteSelectColumns)
       .single();
 
     if (error || !data) {
@@ -151,7 +208,7 @@ export async function updateLease(leaseId: string, input: LeaseInput): Promise<L
         throw new Error(activeLeaseError);
       }
 
-      throw new Error(updateError);
+      throw createLeaseServiceError(updateError, error);
     }
 
     return fromSupabaseRow(data);
@@ -183,17 +240,33 @@ export async function updateLease(leaseId: string, input: LeaseInput): Promise<L
   return lease;
 }
 
-export async function endLease(leaseId: string): Promise<Lease> {
+export async function endLease(leaseId: string, input?: LeaseTerminationInput): Promise<Lease> {
+  const termination = normalizeLeaseTerminationInput(input);
+
   if (canUseSupabase()) {
     const { data, error } = await supabase!
       .from(table)
-      .update({ status: "ended" })
+      .update({
+        status: "ended",
+        actual_end_date: termination.actualEndDate,
+        termination_reason: termination.terminationReason,
+        termination_notes: termination.terminationNotes,
+      })
       .eq("id", leaseId)
-      .select("id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at")
+      .select(selectColumns)
       .single();
 
     if (error || !data) {
-      throw new Error(updateError);
+      if (error) {
+        await logSupabaseLeaseError(error, {
+          filters: [`id = ${leaseId}`],
+          operation: "endLease",
+          order: "none",
+          selectedColumns: selectColumns,
+        });
+      }
+
+      throw createLeaseServiceError(updateError, error);
     }
 
     return fromSupabaseRow(data);
@@ -209,6 +282,9 @@ export async function endLease(leaseId: string): Promise<Lease> {
   const endedLease: Lease = {
     ...existingLease,
     status: "ended",
+    actualEndDate: termination.actualEndDate,
+    terminationReason: termination.terminationReason,
+    terminationNotes: termination.terminationNotes,
     updatedAt: new Date().toISOString(),
   };
   saveLocalStore({
@@ -246,6 +322,133 @@ export async function deleteLease(leaseId: string): Promise<void> {
   saveLocalStore({ ...store, leases: store.leases.filter((candidate) => candidate.id !== leaseId) });
 }
 
+type LeaseQueryContext = {
+  filters: string[];
+  operation: string;
+  order: string;
+  selectedColumns: string;
+};
+
+type SupabaseErrorShape = {
+  code?: string;
+  details?: string;
+  hint?: string;
+  message?: string;
+};
+
+async function getLeasesWithBaseColumns(originalContext: LeaseQueryContext) {
+  console.warn("[supabase:leases] Colonnes de terminaison absentes. Lecture temporaire des baux avec les colonnes de base.", {
+    table,
+    operation: originalContext.operation,
+    selectedColumns: baseSelectColumns,
+    missingColumns: ["actual_end_date", "termination_reason", "termination_notes"],
+  });
+
+  const { data, error } = await supabase!
+    .from(table)
+    .select(baseSelectColumns)
+    .order("start_date", { ascending: false });
+
+  if (error) {
+    await logSupabaseLeaseError(error, { ...originalContext, operation: `${originalContext.operation}:baseColumns`, selectedColumns: baseSelectColumns });
+    throw createLeaseServiceError(loadError, error);
+  }
+
+  return (data ?? []).map(fromSupabaseRow);
+}
+
+async function getLeasesByPropertyWithBaseColumns(propertyId: string, originalContext: LeaseQueryContext) {
+  console.warn("[supabase:leases] Colonnes de terminaison absentes. Lecture temporaire des baux de l'immeuble avec les colonnes de base.", {
+    table,
+    operation: originalContext.operation,
+    selectedColumns: baseSelectColumns,
+    missingColumns: ["actual_end_date", "termination_reason", "termination_notes"],
+  });
+
+  const { data, error } = await supabase!
+    .from(table)
+    .select(baseSelectColumns)
+    .eq("property_id", propertyId)
+    .order("start_date", { ascending: false });
+
+  if (error) {
+    await logSupabaseLeaseError(error, { ...originalContext, operation: `${originalContext.operation}:baseColumns`, selectedColumns: baseSelectColumns });
+    throw createLeaseServiceError(loadError, error);
+  }
+
+  return (data ?? []).map(fromSupabaseRow);
+}
+
+async function getActiveLeaseByUnitWithBaseColumns(unitId: string, originalContext: LeaseQueryContext) {
+  console.warn("[supabase:leases] Colonnes de terminaison absentes. Lecture temporaire du bail actif avec les colonnes de base.", {
+    table,
+    operation: originalContext.operation,
+    selectedColumns: baseSelectColumns,
+    missingColumns: ["actual_end_date", "termination_reason", "termination_notes"],
+  });
+
+  const { data, error } = await supabase!
+    .from(table)
+    .select(baseSelectColumns)
+    .eq("unit_id", unitId)
+    .eq("status", "active")
+    .maybeSingle();
+
+  if (error) {
+    await logSupabaseLeaseError(error, { ...originalContext, operation: `${originalContext.operation}:baseColumns`, selectedColumns: baseSelectColumns });
+    throw createLeaseServiceError(loadError, error);
+  }
+
+  return data ? fromSupabaseRow(data) : null;
+}
+
+async function logSupabaseLeaseError(error: SupabaseErrorShape, context: LeaseQueryContext) {
+  const authenticatedUserId = await getAuthenticatedUserIdForDebug();
+
+  console.error("[supabase:leases] Requête Supabase échouée.", {
+    authenticatedUserId,
+    code: error.code,
+    dataMode: getDataMode(),
+    details: error.details,
+    filters: context.filters,
+    hint: error.hint,
+    message: error.message,
+    operation: context.operation,
+    order: context.order,
+    queriedTable: table,
+    selectedColumns: context.selectedColumns,
+  });
+}
+
+async function getAuthenticatedUserIdForDebug() {
+  if (!supabase) {
+    return null;
+  }
+
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function isMissingTerminationColumnError(error: SupabaseErrorShape) {
+  const text = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
+
+  return (
+    (error.code === "PGRST204" || error.code === "42703") &&
+    (text.includes("actual_end_date") || text.includes("termination_reason") || text.includes("termination_notes"))
+  );
+}
+
+function createLeaseServiceError(message: string, cause?: unknown) {
+  const causeMessage = cause instanceof Error ? cause.message : typeof cause === "object" && cause !== null && "message" in cause ? String((cause as { message?: unknown }).message) : "";
+  const error = new Error(process.env.NODE_ENV === "development" && causeMessage ? `${message} ${causeMessage}` : message);
+  (error as Error & { cause?: unknown }).cause = cause;
+  return error;
+}
+
 function canUseSupabase() {
   return shouldUseSupabase() && isSupabaseConfigured && Boolean(supabase);
 }
@@ -258,10 +461,13 @@ function fromSupabaseRow(row: SupabaseLeaseRow): Lease {
     tenantId: row.tenant_id,
     startDate: row.start_date,
     endDate: row.end_date,
+    actualEndDate: row.actual_end_date ?? null,
     monthlyRent: Number(row.monthly_rent ?? 0),
     paymentStatus: normalizeRentPaymentStatus(row.payment_status),
     status: normalizeLeaseStatus(row.status),
     notes: row.notes ?? "",
+    terminationReason: row.termination_reason ?? null,
+    terminationNotes: row.termination_notes ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -292,6 +498,14 @@ function normalizeLeaseInput(input: LeaseInput): Required<LeaseInput> {
     paymentStatus: input.paymentStatus ?? "à venir",
     status: input.status ?? "active",
     notes: input.notes ?? "",
+  };
+}
+
+function normalizeLeaseTerminationInput(input: LeaseTerminationInput | undefined): Required<LeaseTerminationInput> {
+  return {
+    actualEndDate: input?.actualEndDate || new Date().toISOString().slice(0, 10),
+    terminationReason: input?.terminationReason?.trim() || "Fin normale du bail",
+    terminationNotes: input?.terminationNotes?.trim() || "",
   };
 }
 

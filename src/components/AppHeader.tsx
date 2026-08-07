@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NotificationList } from "@/components/NotificationList";
-import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { DATA_MODE_KEY, setDataMode, type DataMode } from "@/lib/data/dataMode";
 import { getNotificationItems } from "@/lib/mockData";
@@ -76,7 +76,8 @@ const navGroups: NavGroup[] = [
 export function AppHeader() {
   const pathname = usePathname();
   const { configured, signOut, user } = useAuth();
-  const { data: snapshotStore, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
+  const { clearCache: clearPortfolioSnapshotCache, data, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
+  const snapshotStore = data ?? emptyPortfolioStore;
   const headerRef = useRef<HTMLElement>(null);
   const dropdownCloseTimerRef = useRef<number | null>(null);
   const [theme, setTheme] = useState<Theme>("dark");
@@ -200,8 +201,16 @@ export function AppHeader() {
   }
 
   async function updateDataMode(mode: DataMode) {
+    const previousMode = dataModeState;
     setDataMode(mode);
     setDataModeState(mode);
+    clearPortfolioSnapshotCache();
+
+    if (previousMode !== mode) {
+      window.setTimeout(() => window.location.reload(), 0);
+      return;
+    }
+
     try {
       await refreshPortfolioSnapshot();
     } catch (error) {

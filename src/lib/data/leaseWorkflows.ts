@@ -1,7 +1,7 @@
 import { applyActivitySideEffect } from "@/lib/data/activitySideEffectsService";
 import { getActiveLeaseForUnit, getUnitOccupancy } from "@/lib/data/leaseAdapters";
 import { applyTenantNoteSideEffect } from "@/lib/data/notesSideEffectsService";
-import { applyInitialPaymentSideEffect } from "@/lib/data/paymentSideEffectsService";
+import { applyInitialPaymentSideEffect, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import type { Lease, LocalStore, PaymentStatus, RentPaymentStatus, Tenant } from "@/lib/types";
 
 export type AssignTenantToUnitInput = {
@@ -13,7 +13,9 @@ export type AssignTenantToUnitInput = {
   monthlyRent: number;
   leaseStartDate: string;
   leaseEndDate: string;
-  paymentStatus: PaymentStatus;
+  paymentStatus: InitialPaymentStatus;
+  initialAmountPaid?: number;
+  paymentReceivedDate?: string;
   notes?: string;
 };
 
@@ -32,6 +34,12 @@ export type TenantProfileInput = {
   lastName: string;
   email: string;
   phone: string;
+};
+
+export type LeaseTerminationWorkflowInput = {
+  actualEndDate: string;
+  terminationNotes?: string;
+  terminationReason?: string;
 };
 
 export const activeLeaseError = "Ce logement possède déjà un bail actif.";
@@ -86,6 +94,8 @@ export async function assignTenantToUnit(store: LocalStore, input: AssignTenantT
     rent: input.monthlyRent,
     leaseStartDate: input.leaseStartDate,
     paymentStatus: input.paymentStatus,
+    initialAmountPaid: input.initialAmountPaid,
+    paymentReceivedDate: input.paymentReceivedDate,
   });
   nextStore = await applyTenantNoteSideEffect(nextStore, {
     content: input.notes,
@@ -187,7 +197,7 @@ export async function updateTenantProfile(store: LocalStore, tenantId: string, i
   });
 }
 
-export async function endActiveLeaseForUnit(store: LocalStore, unitId: string): Promise<LocalStore> {
+export async function endActiveLeaseForUnit(store: LocalStore, unitId: string, input?: LeaseTerminationWorkflowInput): Promise<LocalStore> {
   const activeLease = getActiveLeaseForUnit(unitId, store.leases);
   const unit = store.units.find((candidate) => candidate.id === unitId);
 
@@ -195,9 +205,13 @@ export async function endActiveLeaseForUnit(store: LocalStore, unitId: string): 
     return store;
   }
 
+  const termination = normalizeLeaseTerminationWorkflowInput(input);
   const endedLease: Lease = {
     ...activeLease,
     status: "ended",
+    actualEndDate: termination.actualEndDate,
+    terminationReason: termination.terminationReason,
+    terminationNotes: termination.terminationNotes,
     updatedAt: new Date().toISOString(),
   };
   const tenant = store.tenants.find((candidate) => candidate.id === activeLease.tenantId) ?? null;
@@ -212,7 +226,7 @@ export async function endActiveLeaseForUnit(store: LocalStore, unitId: string): 
     tenantId: activeLease.tenantId,
     type: "bail",
     title: `Bail terminé - ${unit.label}`,
-    description: `${tenant ? getTenantDisplayName(tenant) : "Le locataire"} a été retiré du ${unit.label}. Le logement est maintenant vacant.`,
+    description: `${tenant ? getTenantDisplayName(tenant) : "Le locataire"} a terminé le bail du ${unit.label} le ${termination.actualEndDate}. Le logement est maintenant vacant.`,
   });
 }
 
@@ -266,9 +280,13 @@ export function isUnitAvailableForLease(store: LocalStore, unitId: string) {
   return unit ? !getUnitOccupancy(unit, store.leases, store.tenants).isOccupied : false;
 }
 
-export function toRentPaymentStatus(status: PaymentStatus): RentPaymentStatus {
+export function toRentPaymentStatus(status: InitialPaymentStatus): RentPaymentStatus {
   if (status === "paid") {
     return "payé";
+  }
+
+  if (status === "partial") {
+    return "partiel";
   }
 
   if (status === "late") {
@@ -296,7 +314,7 @@ function createLeaseRecord({
   leaseStartDate: string;
   monthlyRent: number;
   notes?: string;
-  paymentStatus: PaymentStatus;
+  paymentStatus: InitialPaymentStatus;
   propertyId: string;
   tenantId: string;
   unitId: string;
@@ -330,6 +348,14 @@ function splitFullName(fullName: string) {
 
 function getTenantDisplayName(tenant: Tenant) {
   return tenant.fullName?.trim() || `${tenant.firstName} ${tenant.lastName}`.trim();
+}
+
+function normalizeLeaseTerminationWorkflowInput(input: LeaseTerminationWorkflowInput | undefined): Required<LeaseTerminationWorkflowInput> {
+  return {
+    actualEndDate: input?.actualEndDate || new Date().toISOString().slice(0, 10),
+    terminationReason: input?.terminationReason?.trim() || "Fin normale du bail",
+    terminationNotes: input?.terminationNotes?.trim() || "",
+  };
 }
 
 function createLocalId(prefix: string) {

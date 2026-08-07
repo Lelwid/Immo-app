@@ -1,14 +1,18 @@
 import { createPayment, updatePayment } from "@/lib/data/paymentsService";
 import type { LocalStore, PaymentRecord, PaymentStatus, RentPaymentStatus } from "@/lib/types";
 
-type InitialPaymentInput = {
+export type InitialPaymentStatus = PaymentStatus | "partial";
+
+export type InitialPaymentInput = {
   propertyId: string;
   unitId: string;
   leaseId?: string | null;
   tenantId: string;
   leaseStartDate: string;
   rent: number;
-  paymentStatus: PaymentStatus;
+  paymentStatus: InitialPaymentStatus;
+  initialAmountPaid?: number;
+  paymentReceivedDate?: string;
 };
 
 export async function applyInitialPaymentSideEffect(store: LocalStore, input: InitialPaymentInput): Promise<LocalStore> {
@@ -39,9 +43,11 @@ async function runPaymentSideEffect(store: LocalStore, effect: () => Promise<Loc
   }
 }
 
-function createInitialPayment({
+export function createInitialPayment({
   leaseStartDate,
   leaseId,
+  initialAmountPaid,
+  paymentReceivedDate,
   paymentStatus,
   propertyId,
   rent,
@@ -49,6 +55,8 @@ function createInitialPayment({
   unitId,
 }: InitialPaymentInput): PaymentRecord {
   const rentPaymentStatus = toRentPaymentStatus(paymentStatus);
+  const paidAt = resolveInitialPaymentReceivedDate(paymentStatus, paymentReceivedDate);
+  const amountPaid = resolveInitialAmountPaid(paymentStatus, rent, initialAmountPaid);
 
   return {
     id: createLocalId("payment"),
@@ -59,17 +67,21 @@ function createInitialPayment({
     month: leaseStartDate.slice(0, 7),
     dueDate: leaseStartDate,
     amountDue: rent,
-    amountPaid: paymentStatus === "paid" ? rent : 0,
+    amountPaid,
     status: rentPaymentStatus,
-    paidAt: paymentStatus === "paid" ? leaseStartDate : "",
+    paidAt,
     paymentType: "loyer",
     notes: "Créé lors de l'ajout du locataire.",
   };
 }
 
-function toRentPaymentStatus(status: PaymentStatus): RentPaymentStatus {
+function toRentPaymentStatus(status: InitialPaymentStatus): RentPaymentStatus {
   if (status === "paid") {
     return "payé";
+  }
+
+  if (status === "partial") {
+    return "partiel";
   }
 
   if (status === "late") {
@@ -77,6 +89,47 @@ function toRentPaymentStatus(status: PaymentStatus): RentPaymentStatus {
   }
 
   return "à venir";
+}
+
+export function getTodayIsoDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+
+  return `${year}-${month}-${day}`;
+}
+
+export function resolveInitialPaymentReceivedDate(status: InitialPaymentStatus, paymentReceivedDate?: string) {
+  if (status !== "paid" && status !== "partial") {
+    return "";
+  }
+
+  const receivedDate = paymentReceivedDate || getTodayIsoDate();
+
+  if (receivedDate > getTodayIsoDate()) {
+    throw new Error("La date de réception du paiement ne peut pas être dans le futur.");
+  }
+
+  return receivedDate;
+}
+
+function resolveInitialAmountPaid(status: InitialPaymentStatus, rent: number, initialAmountPaid?: number) {
+  if (status === "paid") {
+    return rent;
+  }
+
+  if (status === "partial") {
+    const amountPaid = Number(initialAmountPaid ?? 0);
+
+    if (amountPaid <= 0 || amountPaid >= rent) {
+      throw new Error("Un paiement partiel doit être supérieur à 0 $ et inférieur au loyer dû.");
+    }
+
+    return amountPaid;
+  }
+
+  return 0;
 }
 
 function createLocalId(prefix: string) {

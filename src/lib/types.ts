@@ -6,6 +6,8 @@ export type RentPaymentStatus = "payé" | "partiel" | "en retard" | "à venir";
 
 export type PaymentType = "loyer" | "frais" | "dépôt" | "autre";
 
+export type PaymentMethod = "virement" | "interac" | "cheque" | "especes" | "carte" | "autre";
+
 export type LeaseStatus = "active" | "ended" | "archived";
 
 export type TicketPriority = "low" | "medium" | "high" | "urgent";
@@ -16,9 +18,9 @@ export type ActivityType = "paiement" | "bail" | "entretien" | "document" | "loc
 
 export type TaskPriority = "faible" | "moyenne" | "élevée";
 
-export type DocumentType = "bail" | "facture" | "photo" | "inspection" | "assurance" | "paiement" | "autre";
+export type DocumentType = "bail" | "avis" | "recu" | "facture" | "photo" | "inspection" | "assurance" | "paiement" | "autre";
 
-export type DocumentRelatedEntityType = "immeuble" | "logement" | "bail" | "entretien" | "paiement";
+export type DocumentRelatedEntityType = "immeuble" | "logement" | "locataire" | "bail" | "entretien" | "paiement";
 
 export type NoteTargetType = "immeuble" | "logement" | "locataire" | "entretien";
 
@@ -90,10 +92,13 @@ export type Lease = {
   tenantId: string;
   startDate: string;
   endDate: string;
+  actualEndDate?: string | null;
   monthlyRent: number;
   paymentStatus: RentPaymentStatus;
   status: LeaseStatus;
   notes?: string;
+  terminationReason?: string | null;
+  terminationNotes?: string | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -191,6 +196,41 @@ export type PaymentRecord = {
   notes: string;
 };
 
+export type RentCharge = {
+  id: string;
+  propertyId: string;
+  unitId: string;
+  leaseId: string;
+  tenantId: string | null;
+  periodMonth: string;
+  dueDate: string;
+  amountDue: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type PaymentTransaction = {
+  id: string;
+  propertyId: string;
+  leaseId?: string | null;
+  tenantId: string | null;
+  receivedAt: string;
+  amountReceived: number;
+  method: PaymentMethod;
+  reference?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type PaymentAllocation = {
+  id: string;
+  transactionId: string;
+  rentChargeId: string;
+  amountAllocated: number;
+  createdAt?: string;
+};
+
 export type LocalStore = {
   properties: Property[];
   units: Unit[];
@@ -200,6 +240,9 @@ export type LocalStore = {
   activities: UnitActivity[];
   documents: PropertyDocument[];
   payments: PaymentRecord[];
+  rentCharges: RentCharge[];
+  paymentTransactions: PaymentTransaction[];
+  paymentAllocations: PaymentAllocation[];
   notes: AppNote[];
   tasks: AppTask[];
 };

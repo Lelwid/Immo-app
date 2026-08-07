@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { DocumentFileActions } from "@/components/DocumentFileActions";
-import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
+import { DocumentUploadModal } from "@/components/DocumentUploadModal";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { addActivityToStore } from "@/lib/data/activityStore";
 import { createDocumentWithFile, deleteDocument as deleteDocumentRecord, getDocumentPreviewUrl, hasDocumentFile } from "@/lib/data/documentsService";
@@ -14,10 +15,22 @@ import { useLocalStore } from "@/lib/useLocalStore";
 type DocumentFilter = "tous" | DocumentType;
 type DocumentForm = Pick<PropertyDocument, "name" | "type" | "propertyId" | "unitId" | "relatedEntityType" | "relatedEntityId">;
 type DocumentDrawerTab = "apercu" | "informations" | "historique";
+type DocumentUploadContext = {
+  initialLeaseId?: string | null;
+  initialRelatedEntityId?: string | null;
+  initialRelatedEntityType?: DocumentRelatedEntityType;
+  initialTenantId?: string | null;
+  initialType?: DocumentType;
+  initialUnitId?: string | null;
+  propertyId?: string;
+  title?: string;
+};
 
 const filters: { label: string; value: DocumentFilter }[] = [
   { label: "Tous", value: "tous" },
   { label: "Baux", value: "bail" },
+  { label: "Avis", value: "avis" },
+  { label: "Reçus", value: "recu" },
   { label: "Factures", value: "facture" },
   { label: "Photos", value: "photo" },
   { label: "Inspections", value: "inspection" },
@@ -29,6 +42,7 @@ const filters: { label: string; value: DocumentFilter }[] = [
 const relatedEntityTypeLabel: Record<DocumentRelatedEntityType, string> = {
   immeuble: "Immeuble",
   logement: "Logement",
+  locataire: "Locataire",
   bail: "Bail",
   entretien: "Demande d'entretien",
   paiement: "Paiement",
@@ -36,6 +50,8 @@ const relatedEntityTypeLabel: Record<DocumentRelatedEntityType, string> = {
 
 const documentIcon: Record<DocumentType, string> = {
   bail: "B",
+  avis: "A",
+  recu: "R",
   facture: "F",
   photo: "P",
   inspection: "I",
@@ -46,6 +62,8 @@ const documentIcon: Record<DocumentType, string> = {
 
 const documentStyle: Record<DocumentType, string> = {
   bail: "border-[color:var(--accent)]/35 bg-[color:var(--accent)]/10 text-[color:var(--accent)]",
+  avis: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
+  recu: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
   facture: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
   photo: "border-[var(--border)] bg-[var(--surface-3)] text-[var(--foreground)]",
   inspection: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
@@ -56,14 +74,17 @@ const documentStyle: Record<DocumentType, string> = {
 
 export default function DocumentsPage() {
   const { setStore } = useLocalStore();
-  const { data: snapshotStore, loading: snapshotLoading, error: snapshotError, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
+  const { data, loading: snapshotLoading, error: snapshotError, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
+  const snapshotStore = data ?? emptyPortfolioStore;
   const [activeFilter, setActiveFilter] = useState<DocumentFilter>("tous");
   const [showDocumentModal, setShowDocumentModal] = useState(false);
+  const [documentUploadContext, setDocumentUploadContext] = useState<DocumentUploadContext | null>(getInitialUploadContextFromUrl);
   const [documentForm, setDocumentForm] = useState<DocumentForm>(() => createEmptyDocument(snapshotStore));
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState(getInitialDocumentId);
   const [documentDrawerTab, setDocumentDrawerTab] = useState<DocumentDrawerTab>("apercu");
   const [documentToDelete, setDocumentToDelete] = useState<PropertyDocument | null>(null);
+  const documentModalOpen = showDocumentModal || Boolean(documentUploadContext);
   const documents = useMemo(
     () =>
       snapshotStore.documents
@@ -77,6 +98,24 @@ export default function DocumentsPage() {
   );
   const selectedDocument = snapshotStore.documents.find((document) => document.id === selectedDocumentId) ?? null;
 
+  if (!data) {
+    return (
+      <RouteShell title="Documents" description="Centralisez les baux, factures, photos, inspections, assurances et preuves de paiement.">
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <p className="text-sm font-semibold text-[var(--muted)]">
+            {snapshotLoading ? "Chargement des documents..." : "Impossible de charger les données du portefeuille."}
+          </p>
+          {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+          {snapshotError ? (
+            <button className="btn-secondary mt-4" onClick={() => void refreshPortfolioSnapshot()} type="button">
+              Réessayer
+            </button>
+          ) : null}
+        </section>
+      </RouteShell>
+    );
+  }
+
   async function refreshDocumentsSnapshot() {
     try {
       await refreshPortfolioSnapshot();
@@ -87,9 +126,28 @@ export default function DocumentsPage() {
   }
 
   function openDocumentModal() {
-    setDocumentForm(createEmptyDocument(snapshotStore, activeFilter === "tous" ? undefined : activeFilter));
-    setSelectedFile(null);
+    setDocumentUploadContext(null);
     setShowDocumentModal(true);
+  }
+
+  function closeDocumentModal() {
+    setShowDocumentModal(false);
+    setDocumentUploadContext(null);
+    clearDocumentUploadQuery();
+  }
+
+  async function handleDocumentUploaded({ activity, document }: { activity: UnitActivity | null; document: PropertyDocument }) {
+    setStore((current) => ({
+      ...current,
+      documents: upsertDocumentInStore(current.documents, document),
+    }));
+
+    if (activity) {
+      setStore((current) => addActivityToStore(current, activity));
+    }
+
+    await refreshDocumentsSnapshot();
+    closeDocumentModal();
   }
 
   async function submitDocument() {
@@ -265,7 +323,23 @@ export default function DocumentsPage() {
         </div>
       </section>
 
-      {showDocumentModal ? (
+      {documentModalOpen ? (
+        <DocumentUploadModal
+          initialLeaseId={documentUploadContext?.initialLeaseId}
+          initialRelatedEntityId={documentUploadContext?.initialRelatedEntityId}
+          initialRelatedEntityType={documentUploadContext?.initialRelatedEntityType}
+          initialTenantId={documentUploadContext?.initialTenantId}
+          initialType={documentUploadContext?.initialType ?? (activeFilter === "tous" ? undefined : activeFilter)}
+          initialUnitId={documentUploadContext?.initialUnitId}
+          onCancel={closeDocumentModal}
+          onUploaded={handleDocumentUploaded}
+          propertyId={documentUploadContext?.propertyId}
+          store={snapshotStore}
+          title={documentUploadContext?.title}
+        />
+      ) : null}
+
+      {false && showDocumentModal ? (
         <FormModal title="Ajouter un document" onCancel={() => setShowDocumentModal(false)}>
           <div className="grid gap-3">
             <TextInput
@@ -389,6 +463,58 @@ function getInitialDocumentId() {
   return new URLSearchParams(window.location.search).get("document");
 }
 
+function getInitialUploadContextFromUrl(): DocumentUploadContext | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get("upload") !== "1") {
+    return null;
+  }
+
+  const type = getDocumentTypeFromQuery(params.get("type"));
+  const relatedEntityType = getRelatedEntityTypeFromQuery(params.get("relatedEntityType"));
+  const leaseId = params.get("leaseId");
+
+  return {
+    initialLeaseId: leaseId,
+    initialRelatedEntityId: params.get("relatedEntityId") || leaseId,
+    initialRelatedEntityType: relatedEntityType ?? (leaseId ? "bail" : undefined),
+    initialTenantId: params.get("tenantId"),
+    initialType: type ?? "bail",
+    initialUnitId: params.get("unitId"),
+    propertyId: params.get("propertyId") ?? undefined,
+    title: type === "bail" || !type ? "Ajouter le document du bail" : undefined,
+  };
+}
+
+function clearDocumentUploadQuery() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+
+  if (!url.searchParams.has("upload")) {
+    return;
+  }
+
+  ["upload", "type", "propertyId", "unitId", "tenantId", "leaseId", "relatedEntityType", "relatedEntityId"].forEach((key) => {
+    url.searchParams.delete(key);
+  });
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function getDocumentTypeFromQuery(value: string | null): DocumentType | undefined {
+  return value && value in documentTypeLabel ? (value as DocumentType) : undefined;
+}
+
+function getRelatedEntityTypeFromQuery(value: string | null): DocumentRelatedEntityType | undefined {
+  return value && value in relatedEntityTypeLabel ? (value as DocumentRelatedEntityType) : undefined;
+}
+
 function getDocumentHistory(document: PropertyDocument, store: LocalStore) {
   return store.activities
     .filter(
@@ -458,7 +584,7 @@ function DocumentDrawer({
           </DrawerTabButton>
         </div>
 
-        {activeTab === "apercu" ? <DocumentPreview document={document} onDownload={onDownload} /> : null}
+        {activeTab === "apercu" ? <DocumentPreview document={document} /> : null}
         {activeTab === "informations" ? <DocumentInformation document={document} store={store} /> : null}
         {activeTab === "historique" ? <DocumentHistory activities={history} /> : null}
 
@@ -497,13 +623,7 @@ function DrawerTabButton({
   );
 }
 
-function DocumentPreview({
-  document,
-  onDownload,
-}: {
-  document: PropertyDocument;
-  onDownload: (document: PropertyDocument) => void;
-}) {
+function DocumentPreview({ document }: { document: PropertyDocument }) {
   const [preview, setPreview] = useState<{ key: string; url: string | null } | null>(null);
   const imagePreview = hasDocumentFile(document) && (document.mimeType?.startsWith("image/") || document.type === "photo");
   const pdfPreview = document.mimeType === "application/pdf" || document.name.toLowerCase().endsWith(".pdf");
@@ -535,6 +655,15 @@ function DocumentPreview({
     };
   }, [document, imagePreview, previewKey]);
 
+  if (!hasDocumentFile(document)) {
+    return (
+      <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5 text-center">
+        <p className="font-semibold text-[var(--foreground)]">{document.name}</p>
+        <p className="mt-2 text-sm text-[var(--muted)]">Aucun fichier téléversé.</p>
+      </div>
+    );
+  }
+
   if (imagePreview && previewUrl) {
     return (
       <div
@@ -554,9 +683,6 @@ function DocumentPreview({
         </div>
         <p className="mt-4 font-semibold text-[var(--foreground)]">{document.name}</p>
         <p className="mt-1 text-sm text-[var(--muted)]">Aperçu PDF non intégré pour ce MVP.</p>
-        <div className="mt-4 flex justify-center">
-          <DocumentFileActions document={document} onDownload={onDownload} />
-        </div>
       </div>
     );
   }

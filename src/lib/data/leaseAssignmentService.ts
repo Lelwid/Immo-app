@@ -9,6 +9,7 @@ import {
   updateTenantProfile as updateTenantProfileLocal,
   toRentPaymentStatus,
   type AssignTenantToUnitInput,
+  type LeaseTerminationWorkflowInput,
   type SaveLeaseInput,
   type TenantProfileInput,
 } from "@/lib/data/leaseWorkflows";
@@ -19,7 +20,7 @@ import { applyInitialPaymentSideEffect } from "@/lib/data/paymentSideEffectsServ
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { Lease, LocalStore, Tenant } from "@/lib/types";
 
-export type { AssignTenantToUnitInput, SaveLeaseInput, TenantProfileInput };
+export type { AssignTenantToUnitInput, LeaseTerminationWorkflowInput, SaveLeaseInput, TenantProfileInput };
 
 export const activeLeaseError = "Ce logement possède déjà un bail actif.";
 
@@ -67,6 +68,8 @@ export async function assignTenantToUnit(store: LocalStore, input: AssignTenantT
     rent: input.monthlyRent,
     leaseStartDate: input.leaseStartDate,
     paymentStatus: input.paymentStatus,
+    initialAmountPaid: input.initialAmountPaid,
+    paymentReceivedDate: input.paymentReceivedDate,
   });
   nextStore = await applyTenantNoteSideEffect(nextStore, {
     content: input.notes,
@@ -164,9 +167,9 @@ export async function saveLeaseForUnit(store: LocalStore, input: SaveLeaseInput)
   });
 }
 
-export async function endActiveLeaseForUnit(store: LocalStore, unitId: string): Promise<LocalStore> {
+export async function endActiveLeaseForUnit(store: LocalStore, unitId: string, input?: LeaseTerminationWorkflowInput): Promise<LocalStore> {
   if (!shouldUseSupabasePrimaryWrites()) {
-    return endActiveLeaseForUnitLocal(store, unitId);
+    return endActiveLeaseForUnitLocal(store, unitId, input);
   }
 
   const activeLease = (await getActiveLeaseByUnit(unitId)) ?? getActiveLeaseForUnit(unitId, store.leases);
@@ -176,7 +179,7 @@ export async function endActiveLeaseForUnit(store: LocalStore, unitId: string): 
     return store;
   }
 
-  const endedLease = await endLease(activeLease.id);
+  const endedLease = await endLease(activeLease.id, input);
   const tenant = store.tenants.find((candidate) => candidate.id === activeLease.tenantId) ?? null;
   const nextStore: LocalStore = {
     ...store,
@@ -189,7 +192,7 @@ export async function endActiveLeaseForUnit(store: LocalStore, unitId: string): 
     tenantId: activeLease.tenantId,
     type: "bail",
     title: `Bail terminé - ${unit.label}`,
-    description: `${tenant ? getTenantDisplayName(tenant) : "Le locataire"} a été retiré du ${unit.label}. Le logement est maintenant vacant.`,
+    description: `${tenant ? getTenantDisplayName(tenant) : "Le locataire"} a terminé le bail du ${unit.label} le ${endedLease.actualEndDate ?? input?.actualEndDate ?? "date non précisée"}. Le logement est maintenant vacant.`,
   });
 }
 

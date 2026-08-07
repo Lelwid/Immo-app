@@ -2,11 +2,12 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
-import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
-import { saveLeaseForUnit } from "@/lib/data/leaseAssignmentService";
+import { LeaseTerminationModal } from "@/components/LeaseTerminationModal";
+import { getActiveLeaseForUnit, getUnitOccupancy } from "@/lib/data/leaseAdapters";
+import { endActiveLeaseForUnit, saveLeaseForUnit, type LeaseTerminationWorkflowInput } from "@/lib/data/leaseAssignmentService";
 import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { currency, getPropertyDashboards, paymentStatusLabel, renewalStatusLabel } from "@/lib/mockData";
-import type { Unit } from "@/lib/types";
+import type { Lease, Unit } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
 type LeaseForm = Pick<Unit, "tenantId" | "monthlyRent" | "leaseStartDate" | "leaseEndDate" | "paymentStatus" | "notes">;
@@ -18,6 +19,9 @@ export default function BauxPage() {
   const properties = useMemo(() => getPropertyDashboards(snapshotStore), [snapshotStore]);
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [showLeaseModal, setShowLeaseModal] = useState(false);
+  const [terminatingLease, setTerminatingLease] = useState<{ lease: Lease; unit: Unit } | null>(null);
+  const [leaseTerminationError, setLeaseTerminationError] = useState("");
+  const [leaseTerminationSaving, setLeaseTerminationSaving] = useState(false);
   const [leaseForm, setLeaseForm] = useState<LeaseForm>({
     tenantId: null,
     monthlyRent: 0,
@@ -69,9 +73,58 @@ export default function BauxPage() {
     setShowLeaseModal(true);
   }
 
+  function openLeaseTermination(unit: Unit) {
+    const activeLease = getActiveLeaseForUnit(unit.id, snapshotStore.leases);
+
+    if (!activeLease) {
+      return;
+    }
+
+    setLeaseTerminationError("");
+    setTerminatingLease({ lease: activeLease, unit });
+  }
+
+  async function confirmLeaseTermination(input: LeaseTerminationWorkflowInput) {
+    if (!terminatingLease || leaseTerminationSaving) {
+      return;
+    }
+
+    setLeaseTerminationSaving(true);
+    setLeaseTerminationError("");
+
+    try {
+      setStore(await endActiveLeaseForUnit(snapshotStore, terminatingLease.unit.id, input));
+      await refreshBauxSnapshot();
+      setTerminatingLease(null);
+      setEditingUnitId(null);
+    } catch (error) {
+      console.error("Impossible de terminer le bail.", error);
+      setLeaseTerminationError("Impossible de terminer le bail. Réessayez dans quelques instants.");
+    } finally {
+      setLeaseTerminationSaving(false);
+    }
+  }
+
   async function saveLease() {
     if (!editingUnitId) {
       return;
+    }
+
+    const unit = snapshotStore.units.find((candidate) => candidate.id === editingUnitId);
+
+    if (!unit) {
+      return;
+    }
+
+    if (!leaseForm.tenantId) {
+      const activeLease = getActiveLeaseForUnit(unit.id, snapshotStore.leases);
+
+      if (activeLease) {
+        setLeaseTerminationError("");
+        setTerminatingLease({ lease: activeLease, unit });
+        setShowLeaseModal(false);
+        return;
+      }
     }
 
     setStore(await saveLeaseForUnit(snapshotStore, {
@@ -117,6 +170,7 @@ export default function BauxPage() {
                   </div>
                   {property.units.map((unit) => {
                     const occupancy = getUnitOccupancy(unit, snapshotStore.leases, snapshotStore.tenants);
+                    const activeLease = getActiveLeaseForUnit(unit.id, snapshotStore.leases);
 
                     return (
                       <div
@@ -130,9 +184,16 @@ export default function BauxPage() {
                         <span>{currency.format(occupancy.monthlyRent)}</span>
                         <span>{paymentStatusLabel[occupancy.paymentStatus]}</span>
                         <span>{renewalStatusLabel[occupancy.paymentStatus]}</span>
-                        <button className="text-left text-sm font-semibold text-[color:var(--accent)]" onClick={() => editLease(unit)} type="button">
-                          Modifier
-                        </button>
+                        <div className="flex flex-col items-start gap-2">
+                          <button className="text-left text-sm font-semibold text-[color:var(--accent)]" onClick={() => editLease(unit)} type="button">
+                            Modifier
+                          </button>
+                          {activeLease ? (
+                            <button className="text-left text-sm font-semibold text-[color:var(--red)]" onClick={() => openLeaseTermination(unit)} type="button">
+                              Terminer le bail
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                     );
                   })}
@@ -208,6 +269,16 @@ export default function BauxPage() {
               </div>
             </div>
           </FormModal>
+        ) : null}
+
+        {terminatingLease ? (
+          <LeaseTerminationModal
+            error={leaseTerminationError}
+            lease={terminatingLease.lease}
+            onCancel={() => setTerminatingLease(null)}
+            onConfirm={confirmLeaseTermination}
+            saving={leaseTerminationSaving}
+          />
         ) : null}
       </section>
     </RouteShell>

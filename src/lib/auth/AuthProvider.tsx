@@ -2,6 +2,8 @@
 
 import type { Session, User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { clearPortfolioSnapshotCache } from "@/lib/data/portfolioSnapshotService";
+import { ONBOARDING_TRANSITION_KEY } from "@/lib/onboardingDecision";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
 export const DEMO_AUTH_KEY = "demoAuth";
@@ -31,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     supabase.auth.getSession().then(({ data }) => {
+      clearPortfolioSnapshotCache();
       setSession(data.session);
       setLoading(false);
     });
@@ -38,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      clearPortfolioSnapshotCache();
       setSession(nextSession);
       setLoading(false);
     });
@@ -95,6 +99,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           await supabase.auth.signOut();
         }
         window.localStorage.removeItem(DEMO_AUTH_KEY);
+        window.sessionStorage.removeItem(ONBOARDING_TRANSITION_KEY);
+        clearPortfolioSnapshotCache();
         setSession(null);
       },
     }),

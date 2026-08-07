@@ -6,10 +6,13 @@ import type {
   LocalStore,
   MaintenanceTicket,
   AppNote,
+  PaymentAllocation,
+  PaymentTransaction,
   PaymentRecord,
   PaymentStatus,
   Property,
   PropertyDashboard,
+  RentCharge,
   Tenant,
   TicketPriority,
   Unit,
@@ -17,6 +20,7 @@ import type {
   UnitDashboard,
 } from "./types";
 import { applyOccupationToLegacyUnit, getUnitOccupancy } from "./data/leaseAdapters";
+import { computeRentChargeStatus, getPortfolioPaymentStatusFromCharges, isRentChargeActionRequired } from "./data/rentStatus";
 
 export const STORAGE_KEY = "gestionnaire-immo-store-v1";
 
@@ -498,6 +502,9 @@ export const seedStore: LocalStore = {
       notes: "Paiement prévu plus tard ce mois-ci.",
     },
   ],
+  rentCharges: [],
+  paymentTransactions: [],
+  paymentAllocations: [],
   notes: [
     {
       id: "note-property-saint-sauveur-general",
@@ -632,7 +639,18 @@ export function buildPropertyDashboard(store: LocalStore, propertyId: string): P
   const units = store.units
     .filter((unit) => unit.propertyId === property.id)
     .sort((a, b) => b.floorIndex - a.floorIndex)
-    .map((unit) => buildUnitDashboard(unit, store.tenants, store.leases, store.maintenanceTickets, store.activities, store.payments));
+    .map((unit) =>
+      buildUnitDashboard(
+        unit,
+        store.tenants,
+        store.leases,
+        store.maintenanceTickets,
+        store.activities,
+        store.payments,
+        store.rentCharges,
+        store.paymentAllocations,
+      ),
+    );
 
   const monthlyRent = units.reduce((sum, unit) => sum + unit.monthlyRent, 0);
   const openTicketCount = units.reduce((sum, unit) => sum + unit.openTickets.length, 0);
@@ -655,6 +673,8 @@ function buildUnitDashboard(
   tickets: MaintenanceTicket[],
   activities: UnitActivity[],
   payments: PaymentRecord[],
+  rentCharges: RentCharge[],
+  paymentAllocations: PaymentAllocation[],
 ): UnitDashboard {
   const occupancy = getUnitOccupancy(unit, leases, tenants);
   const displayUnit = applyOccupationToLegacyUnit(unit, occupancy);
@@ -668,7 +688,7 @@ function buildUnitDashboard(
   const paymentHistory = payments
     .filter((payment) => payment.unitId === unit.id)
     .sort((a, b) => b.month.localeCompare(a.month));
-  const paymentStatus = getUnitPaymentStatusFromPayments(displayUnit.paymentStatus, paymentHistory);
+  const paymentStatus = getUnitPaymentStatusFromLedger(displayUnit.paymentStatus, unit.id, paymentHistory, rentCharges, paymentAllocations);
 
   return {
     ...displayUnit,
@@ -681,22 +701,66 @@ function buildUnitDashboard(
   };
 }
 
-function getUnitPaymentStatusFromPayments(fallback: PaymentStatus, payments: PaymentRecord[]): PaymentStatus {
-  const latestPayment = payments[0];
+function getUnitPaymentStatusFromLedger(
+  fallback: PaymentStatus,
+  unitId: string,
+  payments: PaymentRecord[],
+  rentCharges: RentCharge[],
+  paymentAllocations: PaymentAllocation[],
+): PaymentStatus {
+  const today = getTodayForRentStatus();
+  const unitCharges = rentCharges.filter((charge) => charge.unitId === unitId);
 
-  if (!latestPayment) {
+  if (unitCharges.length > 0) {
+    return getPortfolioPaymentStatusFromCharges(unitCharges, paymentAllocations, today);
+  }
+
+  return getUnitPaymentStatusFromPayments(fallback, payments, today);
+}
+
+function getUnitPaymentStatusFromPayments(fallback: PaymentStatus, payments: PaymentRecord[], today: string): PaymentStatus {
+  if (payments.length === 0) {
     return fallback;
   }
 
-  if (latestPayment.status === "en retard") {
+  const states = payments.map((payment) => ({
+    amountAllocated: payment.amountPaid,
+    amountDue: payment.amountDue,
+    dueDate: payment.dueDate,
+    status: computeRentChargeStatus({
+      amountAllocated: payment.amountPaid,
+      amountDue: payment.amountDue,
+      dueDate: payment.dueDate,
+      today,
+    }),
+  }));
+
+  if (states.some((payment) => payment.status === "en retard")) {
     return "late";
   }
 
-  if (latestPayment.status === "partiel" || latestPayment.status === "à venir") {
+  if (
+    states.some((payment) =>
+      isRentChargeActionRequired({
+        amountAllocated: payment.amountAllocated,
+        amountDue: payment.amountDue,
+        dueDate: payment.dueDate,
+        today,
+      }),
+    )
+  ) {
     return "dueSoon";
   }
 
   return "paid";
+}
+
+function getTodayForRentStatus() {
+  const now = new Date();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+
+  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 function calculateUnitHealth(paymentStatus: PaymentStatus, tickets: MaintenanceTicket[]): Health {
@@ -783,6 +847,9 @@ function normalizeStore(store: LocalStore): LocalStore {
     uploadedAt: document.uploadedAt ?? `${document.uploadDate}T12:00:00.000Z`,
   }));
   const payments = normalizePayments(Array.isArray(store.payments) ? store.payments : seedStore.payments, leases);
+  const rentCharges = normalizeRentCharges((store as Partial<LocalStore>).rentCharges, leases, payments);
+  const paymentTransactions = normalizePaymentTransactions((store as Partial<LocalStore>).paymentTransactions);
+  const paymentAllocations = normalizePaymentAllocations((store as Partial<LocalStore>).paymentAllocations);
   const notes = normalizeNotes(store, units);
   const tasks = normalizeTasks(store);
 
@@ -796,9 +863,81 @@ function normalizeStore(store: LocalStore): LocalStore {
     ],
     documents,
     payments,
+    rentCharges,
+    paymentTransactions,
+    paymentAllocations,
     notes,
     tasks,
   };
+}
+
+function normalizeRentCharges(
+  rentCharges: RentCharge[] | undefined,
+  leases: Lease[],
+  payments: PaymentRecord[],
+): RentCharge[] {
+  const chargesById = new Map<string, RentCharge>();
+
+  (Array.isArray(rentCharges) ? rentCharges : seedStore.rentCharges).forEach((charge) => {
+    chargesById.set(charge.id, {
+      ...charge,
+      tenantId: charge.tenantId ?? leases.find((lease) => lease.id === charge.leaseId)?.tenantId ?? null,
+      amountDue: Number(charge.amountDue || 0),
+      createdAt: charge.createdAt || `${charge.dueDate}T12:00:00.000Z`,
+      updatedAt: charge.updatedAt || charge.createdAt || `${charge.dueDate}T12:00:00.000Z`,
+    });
+  });
+
+  payments.forEach((payment) => {
+    if (!payment.leaseId) {
+      return;
+    }
+
+    const chargeId = createRentChargeId(payment.leaseId, payment.month);
+
+    if (!chargesById.has(chargeId)) {
+      chargesById.set(chargeId, {
+        id: chargeId,
+        propertyId: payment.propertyId,
+        unitId: payment.unitId,
+        leaseId: payment.leaseId,
+        tenantId: payment.tenantId,
+        periodMonth: payment.month,
+        dueDate: payment.dueDate,
+        amountDue: payment.amountDue,
+        createdAt: `${payment.dueDate}T12:00:00.000Z`,
+        updatedAt: `${payment.dueDate}T12:00:00.000Z`,
+      });
+    }
+  });
+
+  return [...chargesById.values()].sort((a, b) => b.dueDate.localeCompare(a.dueDate));
+}
+
+function normalizePaymentTransactions(paymentTransactions: PaymentTransaction[] | undefined): PaymentTransaction[] {
+  return (Array.isArray(paymentTransactions) ? paymentTransactions : seedStore.paymentTransactions).map((transaction) => ({
+    ...transaction,
+    tenantId: transaction.tenantId ?? null,
+    leaseId: transaction.leaseId ?? null,
+    amountReceived: Number(transaction.amountReceived || 0),
+    method: transaction.method ?? "virement",
+    reference: transaction.reference ?? "",
+    notes: transaction.notes ?? "",
+    createdAt: transaction.createdAt || `${transaction.receivedAt}T12:00:00.000Z`,
+    updatedAt: transaction.updatedAt || transaction.createdAt || `${transaction.receivedAt}T12:00:00.000Z`,
+  }));
+}
+
+function normalizePaymentAllocations(paymentAllocations: PaymentAllocation[] | undefined): PaymentAllocation[] {
+  return (Array.isArray(paymentAllocations) ? paymentAllocations : seedStore.paymentAllocations).map((allocation) => ({
+    ...allocation,
+    amountAllocated: Number(allocation.amountAllocated || 0),
+    createdAt: allocation.createdAt || new Date().toISOString(),
+  }));
+}
+
+function createRentChargeId(leaseId: string, periodMonth: string) {
+  return `rent-charge-${leaseId}-${periodMonth}`;
 }
 
 function normalizeLeases(store: LocalStore, units: Unit[]): Lease[] {
@@ -894,6 +1033,9 @@ function normalizeLease(lease: Lease): Lease {
     paymentStatus: lease.paymentStatus || "à venir",
     status: lease.status || "active",
     notes: lease.notes ?? "",
+    actualEndDate: lease.actualEndDate ?? null,
+    terminationReason: lease.terminationReason ?? null,
+    terminationNotes: lease.terminationNotes ?? null,
     createdAt,
     updatedAt: lease.updatedAt || createdAt,
   };

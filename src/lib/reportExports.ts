@@ -2,6 +2,7 @@ import {
   currency,
   documentTypeLabel,
   getNotificationItems,
+  getPayments,
   getPropertyDashboards,
   getPropertyName,
   getTenantName,
@@ -11,16 +12,13 @@ import {
   ticketStatusLabel,
 } from "./mockData";
 import { getUnitOccupancy } from "./data/leaseAdapters";
+import { getFinanceSummary, getRevenueChartData, getScopedFinancePayments, type FinanceScope } from "./financeCalculations";
 import type { LocalStore, PropertyDashboard } from "./types";
-
-const mockNetCashflow = 4280;
 
 export function exportPortfolioReport(store: LocalStore) {
   const properties = getPropertyDashboards(store);
-  const currentMonth = getCurrentMonth(store);
-  const currentPayments = store.payments.filter((payment) => payment.month === currentMonth);
-  const expected = currentPayments.reduce((sum, payment) => sum + payment.amountDue, 0);
-  const received = currentPayments.reduce((sum, payment) => sum + payment.amountPaid, 0);
+  const summary = getFinanceSummary(store, { period: "mois", propertyId: "portfolio" }, properties.flatMap((property) => property.units));
+  const currentPayments = getScopedFinancePayments(store, { period: "mois", propertyId: "portfolio" });
   const latePayments = currentPayments.filter((payment) => payment.status === "en retard");
   const watchedLeases = store.leases.filter((lease) => lease.status === "active" && isLeaseWithinDays(lease.endDate, 90));
   const openTickets = store.maintenanceTickets.filter((ticket) => ticket.status !== "resolved");
@@ -31,8 +29,8 @@ export function exportPortfolioReport(store: LocalStore) {
     subtitle: "Vue consolidée du portefeuille locatif",
     sections: [
       metricsSection([
-        ["Revenus mensuels attendus", currency.format(expected)],
-        ["Revenus reçus", currency.format(received)],
+        ["Loyers exigibles ce mois", currency.format(summary.expected)],
+        ["Encaissements reçus ce mois", currency.format(summary.received)],
         ["Paiements en retard", latePayments.length.toString()],
         ["Baux à surveiller", watchedLeases.length.toString()],
         ["Demandes d'entretien ouvertes", openTickets.length.toString()],
@@ -54,7 +52,7 @@ export function exportPortfolioReport(store: LocalStore) {
 
 export function exportPropertyReport(store: LocalStore, property: PropertyDashboard) {
   const units = property.units;
-  const payments = store.payments.filter((payment) => payment.propertyId === property.id);
+  const payments = getPayments(store).filter((payment) => payment.propertyId === property.id);
   const tickets = store.maintenanceTickets.filter((ticket) => ticket.propertyId === property.id);
   const documents = store.documents.filter((document) => document.propertyId === property.id);
 
@@ -96,36 +94,31 @@ export function exportPropertyReport(store: LocalStore, property: PropertyDashbo
   });
 }
 
-export function exportFinancialReport(store: LocalStore) {
-  const currentMonth = getCurrentMonth(store);
-  const currentPayments = store.payments.filter((payment) => payment.month === currentMonth);
-  const expected = currentPayments.reduce((sum, payment) => sum + payment.amountDue, 0);
-  const received = currentPayments.reduce((sum, payment) => sum + payment.amountPaid, 0);
-  const balanceDue = Math.max(0, expected - received);
-  const occupancyRate = getOccupancyRate(store.units, store);
-  const chartData = getLastMonths(currentMonth, 6).map((month) => {
-    const payments = store.payments.filter((payment) => payment.month === month);
-    return {
-      month,
-      expected: payments.reduce((sum, payment) => sum + payment.amountDue, 0),
-      received: payments.reduce((sum, payment) => sum + payment.amountPaid, 0),
-    };
-  });
+export function exportFinancialReport(store: LocalStore, scope: FinanceScope = {}) {
+  const propertyId = scope.propertyId ?? "portfolio";
+  const period = scope.period ?? "mois";
+  const scopedProperties =
+    propertyId === "portfolio"
+      ? getPropertyDashboards(store)
+      : getPropertyDashboards(store).filter((property) => property.id === propertyId);
+  const scopedPayments = getScopedFinancePayments(store, { period, propertyId });
+  const summary = getFinanceSummary(store, { period, propertyId }, scopedProperties.flatMap((property) => property.units));
+  const chartData = getRevenueChartData(store, { period, propertyId });
 
   openPdfReport({
     title: "Rapport financier",
     subtitle: "Performance financière du portefeuille",
     sections: [
       metricsSection([
-        ["Revenus attendus", currency.format(expected)],
-        ["Revenus reçus", currency.format(received)],
-        ["Solde impayé", currency.format(balanceDue)],
-        ["Taux d'occupation", `${occupancyRate} %`],
-        ["Cashflow net", currency.format(mockNetCashflow)],
+        ["Revenus attendus", currency.format(summary.expected)],
+        ["Revenus reçus", currency.format(summary.received)],
+        ["Solde impayé", currency.format(summary.balanceDue)],
+        ["Taux d'occupation", `${summary.occupancyRate} %`],
+        ["Flux de trésorerie reçu", currency.format(summary.netCashflow)],
       ]),
       chartSection(chartData),
-      tableSection("Revenus par immeuble", ["Immeuble", "Reçus", "Attendus", "Retards"], getPropertyDashboards(store).map((property) => {
-        const payments = currentPayments.filter((payment) => payment.propertyId === property.id);
+      tableSection("Revenus par immeuble", ["Immeuble", "Reçus", "Attendus", "Retards"], scopedProperties.map((property) => {
+        const payments = scopedPayments.filter((payment) => payment.propertyId === property.id);
         return [
           property.name,
           currency.format(payments.reduce((sum, payment) => sum + payment.amountPaid, 0)),
@@ -133,7 +126,7 @@ export function exportFinancialReport(store: LocalStore) {
           payments.filter((payment) => payment.status === "en retard").length.toString(),
         ];
       })),
-      tableSection("Paiements en retard", ["Immeuble", "Logement", "Locataire", "Solde"], currentPayments.filter((payment) => payment.status === "en retard").map((payment) => [
+      tableSection("Paiements en retard", ["Immeuble", "Logement", "Locataire", "Solde"], scopedPayments.filter((payment) => payment.status === "en retard").map((payment) => [
         getPropertyName(payment.propertyId, store),
         getUnitLabel(payment.unitId, store),
         getTenantName(payment.tenantId, store),
@@ -226,43 +219,12 @@ function chartSection(data: { month: string; expected: number; received: number 
     .join("")}</div><p class="meta">Bleu: attendus · Vert: reçus</p></section>`;
 }
 
-function getCurrentMonth(store: LocalStore) {
-  return store.payments.map((payment) => payment.month).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
-}
-
 function isLeaseWithinDays(date: string, days: number) {
   const now = new Date();
   const targetDate = new Date(`${date}T12:00:00`);
   const daysUntilDate = Math.ceil((targetDate.getTime() - now.getTime()) / 86_400_000);
 
   return daysUntilDate >= 0 && daysUntilDate <= days;
-}
-
-function getLastMonths(currentMonth: string, count: number) {
-  const [year, month] = currentMonth.split("-").map(Number);
-  const months: string[] = [];
-
-  for (let index = count - 1; index >= 0; index -= 1) {
-    const date = new Date(year, month - 1 - index, 1);
-    months.push(date.toISOString().slice(0, 7));
-  }
-
-  return months;
-}
-
-function getOccupancyRate(units: { id: string }[], store?: LocalStore) {
-  if (units.length === 0) {
-    return 0;
-  }
-
-  if (!store) {
-    return 0;
-  }
-
-  return Math.round((units.filter((unit) => {
-    const storeUnit = store.units.find((candidate) => candidate.id === unit.id);
-    return storeUnit ? getUnitOccupancy(storeUnit, store.leases, store.tenants).isOccupied : false;
-  }).length / units.length) * 100);
 }
 
 function formatReportDate(date: Date) {

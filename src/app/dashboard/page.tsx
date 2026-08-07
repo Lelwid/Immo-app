@@ -8,11 +8,12 @@ import { DocumentFileActions } from "@/components/DocumentFileActions";
 import { NotesPanel } from "@/components/NotesPanel";
 import { NotificationList } from "@/components/NotificationList";
 import { TaskComposer } from "@/components/TaskComposer";
-import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { addActivityToStore } from "@/lib/data/activityStore";
 import { createDocumentWithFile, deleteDocument as deleteDocumentRecord } from "@/lib/data/documentsService";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
+import { buildRentLedger } from "@/lib/data/rentLedgerService";
 import { createTask as createTaskRecord } from "@/lib/data/tasksService";
 import { exportPortfolioReport } from "@/lib/reportExports";
 import {
@@ -85,9 +86,8 @@ function getInitialDashboardRoute() {
 }
 
 function getCopilotSummary(store: LocalStore): CopilotSummary {
-  const currentMonth = store.payments.map((payment) => payment.month).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
-  const currentPayments = store.payments.filter((payment) => payment.month === currentMonth);
-  const latePayments = currentPayments.filter((payment) => payment.status === "en retard");
+  const ledgerRows = buildRentLedger(store).rows;
+  const latePayments = ledgerRows.filter((payment) => payment.balance > 0 && payment.dueDate < getTodayIsoDate());
   const expiringLeases = store.leases.filter((lease) => lease.status === "active" && isLeaseExpiringSoon(lease.endDate));
   const urgentTickets = store.maintenanceTickets.filter(
     (ticket) => ticket.status !== "resolved" && (ticket.priority === "urgent" || ticket.priority === "high"),
@@ -154,6 +154,14 @@ function getCopilotSummary(store: LocalStore): CopilotSummary {
   };
 }
 
+function getTodayIsoDate() {
+  const now = new Date();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
 function isLeaseExpiringSoon(date: string) {
   const now = new Date();
   const leaseEnd = new Date(`${date}T12:00:00`);
@@ -171,8 +179,9 @@ function getTenantFullName(tenantId: string | null | undefined, store: LocalStor
 }
 
 export default function Home() {
-  const { store, setStore } = useLocalStore();
-  const { data: dashboardStore, loading: snapshotLoading, error: snapshotError, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
+  const { setStore } = useLocalStore();
+  const { data, loading: snapshotLoading, error: snapshotError, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
+  const dashboardStore = data ?? emptyPortfolioStore;
   const initialRoute = getInitialDashboardRoute();
   const propertyDashboards = useMemo(() => getPropertyDashboards(dashboardStore), [dashboardStore]);
   const portfolioSummary = useMemo(() => getPortfolioSummary(dashboardStore), [dashboardStore]);
@@ -182,7 +191,7 @@ export default function Home() {
   const upcomingTasks = useMemo(() => getUpcomingTasks(dashboardStore.tasks, 3), [dashboardStore.tasks]);
   const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
   const [taskSuccessVisible, setTaskSuccessVisible] = useState(false);
-  const [selectedPropertyId, setSelectedPropertyId] = useState(initialRoute.propertyId ?? store.properties[0]?.id ?? "");
+  const [selectedPropertyId, setSelectedPropertyId] = useState(initialRoute.propertyId ?? "");
   const selectedProperty = useMemo(
     () => propertyDashboards.find((property) => property.id === selectedPropertyId) ?? propertyDashboards[0],
     [propertyDashboards, selectedPropertyId],
@@ -291,6 +300,11 @@ export default function Home() {
               {snapshotLoading ? "Chargement du portefeuille..." : "Aucune donnée de portefeuille disponible."}
             </p>
             {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+            {snapshotError ? (
+              <button className="btn-secondary mt-4" onClick={() => void refreshPortfolioSnapshot()} type="button">
+                Réessayer
+              </button>
+            ) : null}
           </section>
         </div>
       </main>

@@ -2,9 +2,22 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { AuthRouteGate } from "@/components/AuthRouteGate";
 import { ClientOnly } from "@/components/ClientOnly";
-import { OnboardingGate } from "@/components/OnboardingGate";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 import "./globals.css";
+
+const themeScript = `
+(() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const requested = params.get("theme");
+    const stored = window.localStorage.getItem("theme");
+    const theme = requested === "light" || requested === "dark" ? requested : stored === "light" || stored === "dark" ? stored : "dark";
+    document.documentElement.dataset.theme = theme;
+  } catch {
+    document.documentElement.dataset.theme = "dark";
+  }
+})();
+`;
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -29,13 +42,18 @@ export default function RootLayout({
   return (
     <html
       lang="fr-CA"
+      data-theme="dark"
+      suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <script id="theme-initializer" dangerouslySetInnerHTML={{ __html: themeScript }} />
+      </head>
       <body className="custom-scrollbar min-h-full flex flex-col">
         <ClientOnly>
           <AuthProvider>
             <AuthRouteGate>
-              <OnboardingGate>{children}</OnboardingGate>
+              {children}
             </AuthRouteGate>
           </AuthProvider>
         </ClientOnly>

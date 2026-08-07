@@ -1,9 +1,13 @@
 import { buildPropertyDashboard, seedStore } from "./local-storage";
 import { getUnitOccupancy } from "./data/leaseAdapters";
+import { hasDocumentFile } from "./data/documentsService";
+import { buildRentLedger, getRentLedgerSummary } from "./data/rentLedgerService";
 import type {
   DocumentType,
+  Lease,
   LocalStore,
   NotificationItem,
+  PropertyDocument,
   PaymentStatus,
   RentPaymentStatus,
   TicketPriority,
@@ -52,6 +56,8 @@ export const ticketStatusLabel: Record<TicketStatus, string> = {
 
 export const documentTypeLabel: Record<DocumentType, string> = {
   bail: "Bail",
+  avis: "Avis",
+  recu: "Reçu",
   facture: "Facture",
   photo: "Photo",
   inspection: "Inspection",
@@ -89,12 +95,24 @@ export function getPortfolioSummary(store: LocalStore = mockStore) {
 }
 
 export function getPayments(store: LocalStore = mockStore) {
-  return store.payments
-    .map((payment) => ({
-      ...payment,
-      propertyName: getPropertyName(payment.propertyId, store),
-      unitLabel: getUnitLabel(payment.unitId, store),
-      tenantName: getTenantName(payment.tenantId, store),
+  return buildRentLedger(store).rows
+    .map((charge) => ({
+      id: `payment-view-${charge.id}`,
+      propertyId: charge.propertyId,
+      unitId: charge.unitId,
+      leaseId: charge.leaseId,
+      tenantId: charge.tenantId,
+      month: charge.periodMonth,
+      dueDate: charge.dueDate,
+      amountDue: charge.amountDue,
+      amountPaid: charge.amountAllocated,
+      status: charge.status,
+      paidAt: charge.lastPaymentAt,
+      paymentType: "loyer" as const,
+      notes: "",
+      propertyName: getPropertyName(charge.propertyId, store),
+      unitLabel: getUnitLabel(charge.unitId, store),
+      tenantName: getTenantName(charge.tenantId, store),
     }))
     .sort((a, b) => b.month.localeCompare(a.month) || a.propertyName.localeCompare(b.propertyName));
 }
@@ -115,26 +133,24 @@ export function getPropertyActivities(propertyId: string, store: LocalStore = mo
 }
 
 export function getPaymentSummary(store: LocalStore = mockStore) {
-  const currentMonth = getCurrentPaymentMonth(store);
-  const monthlyPayments = store.payments.filter((payment) => payment.month === currentMonth);
-  const expected = monthlyPayments.reduce((sum, payment) => sum + payment.amountDue, 0);
-  const received = monthlyPayments.reduce((sum, payment) => sum + payment.amountPaid, 0);
-  const late = monthlyPayments
-    .filter((payment) => payment.status === "en retard")
-    .reduce((sum, payment) => sum + payment.amountDue - payment.amountPaid, 0);
+  const summary = getRentLedgerSummary(buildRentLedger(store), getCurrentPaymentMonth());
 
   return {
-    currentMonth,
-    expected,
-    received,
-    late,
-    balanceDue: Math.max(0, expected - received),
+    currentMonth: summary.currentMonth,
+    expected: summary.dueThisMonth,
+    received: summary.receivedThisMonth,
+    late: summary.overdueBalance,
+    balanceDue: summary.totalReceivable,
   };
 }
 
 export function getTenantName(tenantId: string | null, store: LocalStore = mockStore) {
   const tenant = store.tenants.find((candidate) => candidate.id === tenantId);
   return tenant ? `${tenant.firstName} ${tenant.lastName}` : "Vacant";
+}
+
+function getTenantDisplayName(tenant: LocalStore["tenants"][number]) {
+  return tenant.fullName?.trim() || `${tenant.firstName} ${tenant.lastName}`.trim();
 }
 
 export function getPropertyName(propertyId: string, store: LocalStore = mockStore) {
@@ -149,8 +165,9 @@ export function getNotificationItems(store: LocalStore = mockStore): Notificatio
   const notifications: NotificationItem[] = [];
   const now = new Date();
   const leaseWarningDays = 90;
+  const ledgerRows = buildRentLedger(store).rows;
 
-  for (const payment of store.payments.filter((candidate) => candidate.status === "en retard")) {
+  for (const payment of ledgerRows.filter((candidate) => candidate.status === "en retard")) {
     const daysLate = getDaysSince(payment.dueDate, now);
 
     notifications.push({
@@ -169,7 +186,7 @@ export function getNotificationItems(store: LocalStore = mockStore): Notificatio
     });
   }
 
-  for (const payment of store.payments.filter((candidate) => candidate.status === "partiel")) {
+  for (const payment of ledgerRows.filter((candidate) => candidate.status === "partiel")) {
     notifications.push({
       id: `payment-partial-${payment.id}`,
       priority: "attention",
@@ -178,10 +195,10 @@ export function getNotificationItems(store: LocalStore = mockStore): Notificatio
       unit: getUnitLabel(payment.unitId, store),
       tenant: getTenantName(payment.tenantId, store),
       recommendedAction: "Confirmer le solde restant avec le locataire.",
-      urgencyReason: "Un solde demeure ouvert pour le mois courant.",
+      urgencyReason: "Un solde demeure ouvert pour ce loyer.",
       relatedDeadline: payment.dueDate,
-      timing: payment.paidAt ? formatNotificationTiming(payment.paidAt, now) : "Solde à suivre",
-      sortDate: payment.paidAt || payment.dueDate,
+      timing: payment.lastPaymentAt ? formatNotificationTiming(payment.lastPaymentAt, now) : "Solde à suivre",
+      sortDate: payment.lastPaymentAt || payment.dueDate,
       href: "/paiements",
     });
   }
@@ -216,24 +233,31 @@ export function getNotificationItems(store: LocalStore = mockStore): Notificatio
       });
     }
 
-    const hasLeaseDocument = store.documents.some((document) => document.unitId === unit.id && document.type === "bail");
+  }
 
-    if (occupancy.tenantId && !hasLeaseDocument) {
-      notifications.push({
-        id: `missing-lease-document-${unit.id}`,
-        priority: "info",
-        title: "Document de bail manquant",
-        property: propertyName,
-        unit: unit.label,
-        tenant: tenantName,
-        recommendedAction: "Téléverser une copie du bail signé.",
-        urgencyReason: "Le dossier du logement est incomplet.",
-        relatedDeadline: occupancy.leaseStartDate,
-        timing: "Dossier incomplet",
-        sortDate: occupancy.leaseStartDate,
-        href: "/documents",
-      });
+  for (const lease of store.leases.filter((candidate) => candidate.status === "active")) {
+    const unit = store.units.find((candidate) => candidate.id === lease.unitId);
+
+    if (!unit || !shouldShowMissingLeaseDocumentNotification({ documents: store.documents, lease, now })) {
+      continue;
     }
+
+    const tenant = store.tenants.find((candidate) => candidate.id === lease.tenantId && !candidate.archivedAt) ?? null;
+
+    notifications.push({
+      id: `missing-lease-document-${lease.id}`,
+      priority: "info",
+      title: "Copie du bail non téléversée",
+      property: getPropertyName(lease.propertyId, store),
+      unit: unit.label,
+      tenant: tenant ? getTenantDisplayName(tenant) : "Locataire introuvable",
+      recommendedAction: "Ajouter le document du bail.",
+      urgencyReason: "Un bail actif existe pour ce logement, mais aucune copie du bail n’a encore été ajoutée.",
+      relatedDeadline: lease.startDate,
+      timing: "Copie à ajouter",
+      sortDate: lease.createdAt ?? lease.startDate,
+      href: buildLeaseDocumentUploadHref(lease),
+    });
   }
 
   for (const ticket of store.maintenanceTickets.filter((candidate) => candidate.status !== "resolved")) {
@@ -278,8 +302,76 @@ export function getNotificationItems(store: LocalStore = mockStore): Notificatio
   });
 }
 
-function getCurrentPaymentMonth(store: LocalStore) {
-  return store.payments.map((payment) => payment.month).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
+export function shouldShowMissingLeaseDocumentNotification({
+  documents,
+  lease,
+  now = new Date(),
+}: {
+  documents: PropertyDocument[];
+  lease: Lease;
+  now?: Date;
+}) {
+  if (lease.status !== "active") {
+    return false;
+  }
+
+  if (hasRealLeaseDocument(lease, documents)) {
+    return false;
+  }
+
+  const createdAt = parseStoredDate(lease.createdAt);
+
+  if (createdAt) {
+    return now.getTime() - createdAt.getTime() >= 86_400_000;
+  }
+
+  // Fallback legacy: old local leases may not have createdAt, so the lease start date
+  // is the safest available signal. Never show the alert before that date.
+  const leaseStartDate = parseStoredDate(lease.startDate);
+
+  return Boolean(leaseStartDate && now.getTime() >= leaseStartDate.getTime());
+}
+
+function hasRealLeaseDocument(lease: Lease, documents: PropertyDocument[]) {
+  return documents.some(
+    (document) =>
+      document.type === "bail" &&
+      hasDocumentFile(document) &&
+      document.propertyId === lease.propertyId &&
+      (document.leaseId === lease.id ||
+        (document.relatedEntityType === "bail" && document.relatedEntityId === lease.id) ||
+        document.unitId === lease.unitId ||
+        document.tenantId === lease.tenantId),
+  );
+}
+
+function buildLeaseDocumentUploadHref(lease: Lease) {
+  const params = new URLSearchParams({
+    upload: "1",
+    type: "bail",
+    propertyId: lease.propertyId,
+    unitId: lease.unitId,
+    tenantId: lease.tenantId,
+    leaseId: lease.id,
+    relatedEntityType: "bail",
+    relatedEntityId: lease.id,
+  });
+
+  return `/documents?${params.toString()}`;
+}
+
+function parseStoredDate(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value.includes("T") ? value : `${value}T12:00:00`);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getCurrentPaymentMonth() {
+  return new Date().toISOString().slice(0, 7);
 }
 
 function isLeaseWithinDays(date: string, days: number) {

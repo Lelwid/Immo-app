@@ -1,6 +1,7 @@
 export type DataMode = "local" | "supabase";
 
 export const DATA_MODE_KEY = "gestionnaire-immo-data-mode-v1";
+export const DATA_MODE_CHANGED_EVENT = "gestionnaire-immo-data-mode-changed";
 
 export function getDataMode(): DataMode {
   if (typeof window === "undefined") {
@@ -16,6 +17,7 @@ export function setDataMode(mode: DataMode) {
   }
 
   window.localStorage.setItem(DATA_MODE_KEY, mode);
+  window.dispatchEvent(new CustomEvent(DATA_MODE_CHANGED_EVENT, { detail: mode }));
 }
 
 export function shouldUseSupabase() {

@@ -69,7 +69,7 @@ export async function getDocuments(): Promise<PropertyDocument[]> {
       throw new Error(loadError);
     }
 
-    return data.map(fromSupabaseRow);
+    return sortDocuments(data.map(fromSupabaseRow));
   }
 
   return sortDocuments(loadLocalStore().documents);
@@ -87,7 +87,7 @@ export async function getDocumentsForProperty(propertyId: string): Promise<Prope
       throw new Error(loadError);
     }
 
-    return data.map(fromSupabaseRow);
+    return sortDocuments(data.map(fromSupabaseRow));
   }
 
   return sortDocuments(loadLocalStore().documents.filter((document) => document.propertyId === propertyId));
@@ -105,7 +105,7 @@ export async function getDocumentsForUnit(unitId: string): Promise<PropertyDocum
       throw new Error(loadError);
     }
 
-    return data.map(fromSupabaseRow);
+    return sortDocuments(data.map(fromSupabaseRow));
   }
 
   return sortDocuments(loadLocalStore().documents.filter((document) => document.unitId === unitId));
@@ -123,7 +123,7 @@ export async function getDocumentsForTenant(tenantId: string): Promise<PropertyD
       throw new Error(loadError);
     }
 
-    return data.map(fromSupabaseRow);
+    return sortDocuments(data.map(fromSupabaseRow));
   }
 
   return sortDocuments(loadLocalStore().documents.filter((document) => document.tenantId === tenantId));
@@ -141,7 +141,7 @@ export async function getDocumentsForLease(leaseId: string): Promise<PropertyDoc
       throw new Error(loadError);
     }
 
-    return data.map(fromSupabaseRow);
+    return sortDocuments(data.map(fromSupabaseRow));
   }
 
   return sortDocuments(
@@ -299,6 +299,46 @@ export async function deleteDocument(documentId: string): Promise<void> {
   });
 }
 
+export async function cleanupOnboardingPlaceholderDocuments(): Promise<number> {
+  if (canUseSupabase()) {
+    const { data, error } = await supabase!.from(table).select(selectColumns);
+
+    if (error || !data) {
+      throw new Error(deleteError);
+    }
+
+    const placeholders = data.map(fromSupabaseRow).filter(isOnboardingPlaceholderDocument);
+
+    if (placeholders.length === 0) {
+      return 0;
+    }
+
+    const { error: deletePlaceholdersError } = await supabase!
+      .from(table)
+      .delete()
+      .in("id", placeholders.map((document) => document.id));
+
+    if (deletePlaceholdersError) {
+      throw new Error(deleteError);
+    }
+
+    return placeholders.length;
+  }
+
+  const store = loadLocalStore();
+  const nextDocuments = store.documents.filter((document) => !isOnboardingPlaceholderDocument(normalizeDocumentRecord(document)));
+  const removedCount = store.documents.length - nextDocuments.length;
+
+  if (removedCount > 0) {
+    saveLocalStore({
+      ...store,
+      documents: nextDocuments,
+    });
+  }
+
+  return removedCount;
+}
+
 export async function listDocuments(unitId?: string): Promise<PropertyDocument[]> {
   return unitId ? getDocumentsForUnit(unitId) : getDocuments();
 }
@@ -404,6 +444,11 @@ export async function deleteDocumentFile(document: PropertyDocument): Promise<vo
 
 export function hasDocumentFile(document: PropertyDocument) {
   return Boolean(document.fileDataUrl || getStoragePath(document));
+}
+
+export function isOnboardingPlaceholderDocument(document: PropertyDocument) {
+  const generatedName = /^Dossier (bail|assurance|inspection|facture|autre)$/i.test(document.name.trim());
+  return generatedName && !document.fileDataUrl && !document.storagePath && !document.mimeType && !document.size && !getStoragePath(document);
 }
 
 const selectColumns =
@@ -534,6 +579,8 @@ function normalizeDocumentRecord(document: PropertyDocument): PropertyDocument {
 function normalizeDocumentType(value: string | null | undefined): DocumentType {
   if (
     value === "bail" ||
+    value === "avis" ||
+    value === "recu" ||
     value === "facture" ||
     value === "photo" ||
     value === "inspection" ||
@@ -548,7 +595,7 @@ function normalizeDocumentType(value: string | null | undefined): DocumentType {
 }
 
 function normalizeRelatedEntityType(value: string | null | undefined): DocumentRelatedEntityType | undefined {
-  if (value === "immeuble" || value === "logement" || value === "bail" || value === "entretien" || value === "paiement") {
+  if (value === "immeuble" || value === "logement" || value === "locataire" || value === "bail" || value === "entretien" || value === "paiement") {
     return value;
   }
 
@@ -558,6 +605,7 @@ function normalizeRelatedEntityType(value: string | null | undefined): DocumentR
 function sortDocuments(documents: PropertyDocument[]) {
   return [...documents]
     .map(normalizeDocumentRecord)
+    .filter((document) => !isOnboardingPlaceholderDocument(document))
     .sort((a, b) => (b.uploadedAt ?? b.uploadDate).localeCompare(a.uploadedAt ?? a.uploadDate));
 }
 

@@ -8,12 +8,29 @@ import {
   seedStore,
   STORAGE_KEY,
 } from "./local-storage";
+import { DATA_MODE_CHANGED_EVENT, getDataMode } from "./data/dataMode";
 import type { LocalStore } from "./types";
 
 const listeners = new Set<() => void>();
 let cachedRaw: string | null = null;
 let cachedStore: LocalStore = seedStore;
 let hydrated = false;
+
+const emptyStore: LocalStore = {
+  activities: [],
+  documents: [],
+  leases: [],
+  maintenanceTickets: [],
+  notes: [],
+  payments: [],
+  paymentAllocations: [],
+  paymentTransactions: [],
+  properties: [],
+  rentCharges: [],
+  tasks: [],
+  tenants: [],
+  units: [],
+};
 
 function emitStoreChange() {
   listeners.forEach((listener) => listener());
@@ -24,6 +41,7 @@ function subscribe(listener: () => void) {
 
   if (typeof window !== "undefined") {
     window.addEventListener("storage", listener);
+    window.addEventListener(DATA_MODE_CHANGED_EVENT, listener);
     if (!hydrated) {
       hydrated = true;
       cachedRaw = window.localStorage.getItem(STORAGE_KEY);
@@ -37,12 +55,13 @@ function subscribe(listener: () => void) {
 
     if (typeof window !== "undefined") {
       window.removeEventListener("storage", listener);
+      window.removeEventListener(DATA_MODE_CHANGED_EVENT, listener);
     }
   };
 }
 
 export function useLocalStore() {
-  const store = useSyncExternalStore(subscribe, getSnapshot, () => seedStore);
+  const store = useSyncExternalStore(subscribe, getSnapshot, () => emptyStore);
 
   const setPersistentStore = useCallback((updater: LocalStore | ((current: LocalStore) => LocalStore)) => {
     const currentStore = loadLocalStore();
@@ -75,11 +94,15 @@ export function resetDemoData() {
 
 function getSnapshot() {
   if (typeof window === "undefined") {
-    return seedStore;
+    return emptyStore;
+  }
+
+  if (getDataMode() === "supabase") {
+    return emptyStore;
   }
 
   if (!hydrated) {
-    return seedStore;
+    return emptyStore;
   }
 
   const raw = window.localStorage.getItem(STORAGE_KEY);

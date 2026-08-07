@@ -5,13 +5,18 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { DocumentFileActions } from "@/components/DocumentFileActions";
+import { DocumentUploadModal } from "@/components/DocumentUploadModal";
+import { LeaseTerminationModal } from "@/components/LeaseTerminationModal";
 import { NotesPanel } from "@/components/NotesPanel";
 import { TaskComposer } from "@/components/TaskComposer";
-import { getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
+import { addActivityToStore } from "@/lib/data/activityStore";
+import { getActiveLeaseForUnit, getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
 import {
   assignTenantToUnit,
   endActiveLeaseForUnit,
+  type LeaseTerminationWorkflowInput,
 } from "@/lib/data/leaseAssignmentService";
+import { getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import {
   currency,
@@ -24,7 +29,7 @@ import {
   ticketStatusLabel,
 } from "@/lib/mockData";
 import { exportPropertyReport } from "@/lib/reportExports";
-import type { Health, LocalStore, MaintenanceTicket, PaymentRecord, PaymentStatus, PropertyDocument, Tenant, UnitActivity, UnitDashboard } from "@/lib/types";
+import type { Health, Lease, LocalStore, MaintenanceTicket, PaymentRecord, PropertyDocument, Tenant, UnitActivity, UnitDashboard } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
 type PropertyTab = "resume" | "logements" | "locataires" | "finances" | "entretien" | "documents" | "historique" | "notes";
@@ -37,7 +42,9 @@ type UnitTenantForm = {
   monthlyRent: string;
   leaseStartDate: string;
   leaseEndDate: string;
-  paymentStatus: PaymentStatus;
+  paymentStatus: InitialPaymentStatus;
+  initialAmountPaid: string;
+  paymentReceivedDate: string;
   notes: string;
 };
 
@@ -69,9 +76,12 @@ export default function PropertyDetailsPage() {
   const [unitDrawerTab, setUnitDrawerTab] = useState<UnitDrawerTab>("resume");
   const [selectedDocument, setSelectedDocument] = useState<PropertyDocument | null>(null);
   const [documentDrawerTab, setDocumentDrawerTab] = useState<DocumentDrawerTab>("apercu");
+  const [showDocumentUploadModal, setShowDocumentUploadModal] = useState(false);
   const [tenantAssignmentUnit, setTenantAssignmentUnit] = useState<UnitDashboard | null>(null);
   const [tenantAssignmentForm, setTenantAssignmentForm] = useState<UnitTenantForm>(() => createEmptyUnitTenantForm());
   const [tenantRemovalUnit, setTenantRemovalUnit] = useState<UnitDashboard | null>(null);
+  const [leaseTerminationError, setLeaseTerminationError] = useState("");
+  const [leaseTerminationSaving, setLeaseTerminationSaving] = useState(false);
   const snapshotStore = snapshot ?? store;
 
   useEffect(() => {
@@ -188,6 +198,8 @@ export default function PropertyDetailsPage() {
       leaseStartDate: tenantAssignmentForm.leaseStartDate,
       leaseEndDate: tenantAssignmentForm.leaseEndDate,
       paymentStatus: tenantAssignmentForm.paymentStatus,
+      initialAmountPaid: Number(tenantAssignmentForm.initialAmountPaid),
+      paymentReceivedDate: tenantAssignmentForm.paymentReceivedDate,
       notes: tenantAssignmentForm.notes,
     }));
     await refreshPropertySnapshot();
@@ -196,22 +208,48 @@ export default function PropertyDetailsPage() {
     setSelectedUnit(null);
   }
 
-  async function confirmTenantRemoval() {
+  async function confirmTenantRemoval(input: LeaseTerminationWorkflowInput) {
     if (!tenantRemovalUnit) {
       setTenantRemovalUnit(null);
       return;
     }
 
-    setStore(await endActiveLeaseForUnit(snapshotStore, tenantRemovalUnit.id));
-    await refreshPropertySnapshot();
+    if (leaseTerminationSaving) {
+      return;
+    }
 
-    setTenantRemovalUnit(null);
-    setSelectedUnit(null);
+    setLeaseTerminationSaving(true);
+    setLeaseTerminationError("");
+
+    try {
+      setStore(await endActiveLeaseForUnit(snapshotStore, tenantRemovalUnit.id, input));
+      await refreshPropertySnapshot();
+      setTenantRemovalUnit(null);
+    } catch (error) {
+      console.error("Impossible de terminer le bail.", error);
+      setLeaseTerminationError("Impossible de terminer le bail. Réessayez dans quelques instants.");
+    } finally {
+      setLeaseTerminationSaving(false);
+    }
   }
 
   function openDocument(document: PropertyDocument) {
     setSelectedDocument(document);
     setDocumentDrawerTab("apercu");
+  }
+
+  async function handlePropertyDocumentUploaded({ activity, document }: { activity: UnitActivity | null; document: PropertyDocument }) {
+    setStore((current) => ({
+      ...current,
+      documents: upsertDocumentInStore(current.documents, document),
+    }));
+
+    if (activity) {
+      setStore((current) => addActivityToStore(current, activity));
+    }
+
+    await refreshPropertySnapshot();
+    setShowDocumentUploadModal(false);
   }
 
   return (
@@ -311,6 +349,15 @@ export default function PropertyDetailsPage() {
 
         {activeTab === "documents" ? (
           <div className="grid gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-[var(--foreground)]">Documents</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">Documents associés à {property.name}</p>
+              </div>
+              <button className="btn-primary" onClick={() => setShowDocumentUploadModal(true)} type="button">
+                Ajouter un document
+              </button>
+            </div>
             {propertyDocuments.map((document) => (
               <button
                 key={document.id}
@@ -342,6 +389,7 @@ export default function PropertyDetailsPage() {
           onClose={() => setSelectedUnit(null)}
           onOpenTenantAssignment={openTenantAssignment}
           onTabChange={setUnitDrawerTab}
+          onTerminateLease={setTenantRemovalUnit}
           store={snapshotStore}
           unit={selectedUnitFromSnapshot}
         />
@@ -357,14 +405,13 @@ export default function PropertyDetailsPage() {
         />
       ) : null}
 
-      {tenantRemovalUnit ? (
-        <ConfirmModal
-          title="Retirer le locataire du logement ?"
-          message="Voulez-vous vraiment retirer ce locataire du logement ? Le logement deviendra vacant."
-          cancelLabel="Annuler"
-          confirmLabel="Retirer le locataire"
+      {tenantRemovalUnit && getActiveLeaseForUnit(tenantRemovalUnit.id, snapshotStore.leases) ? (
+        <LeaseTerminationModal
+          error={leaseTerminationError}
+          lease={getActiveLeaseForUnit(tenantRemovalUnit.id, snapshotStore.leases)!}
           onCancel={() => setTenantRemovalUnit(null)}
           onConfirm={confirmTenantRemoval}
+          saving={leaseTerminationSaving}
         />
       ) : null}
 
@@ -379,6 +426,15 @@ export default function PropertyDetailsPage() {
           unitLabel={getUnitLabel(property.units, selectedDocument.unitId)}
         />
       ) : null}
+
+      {showDocumentUploadModal ? (
+        <DocumentUploadModal
+          onCancel={() => setShowDocumentUploadModal(false)}
+          onUploaded={handlePropertyDocumentUploaded}
+          propertyId={property.id}
+          store={snapshotStore}
+        />
+      ) : null}
     </RouteShell>
   );
 }
@@ -390,6 +446,12 @@ function Metric({ label, value }: { label: string; value: string }) {
       <p className="mt-2 text-2xl font-semibold text-[var(--foreground)]">{value}</p>
     </div>
   );
+}
+
+function upsertDocumentInStore(documents: PropertyDocument[], document: PropertyDocument) {
+  return documents.some((candidate) => candidate.id === document.id)
+    ? documents.map((candidate) => (candidate.id === document.id ? document : candidate))
+    : [...documents, document];
 }
 
 function formatUnitCount(count: number) {
@@ -521,6 +583,7 @@ function UnitDrawer({
   onClose,
   onOpenTenantAssignment,
   onTabChange,
+  onTerminateLease,
   store,
   unit,
 }: {
@@ -530,12 +593,18 @@ function UnitDrawer({
   onClose: () => void;
   onOpenTenantAssignment: (unit: UnitDashboard) => void;
   onTabChange: (tab: UnitDrawerTab) => void;
+  onTerminateLease: (unit: UnitDashboard) => void;
   store: LocalStore;
   unit: UnitDashboard;
 }) {
   const activities = [...unit.activities].sort((a, b) => (b.createdAt ?? b.date).localeCompare(a.createdAt ?? a.date));
   const tenant = getActiveTenant(unit);
   const occupancy = getUnitOccupancy(unit, store.leases, store.tenants);
+  const activeLease = getActiveLeaseForUnit(unit.id, store.leases);
+  const latestLease =
+    [...store.leases]
+      .filter((lease) => lease.unitId === unit.id)
+      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? b.endDate).localeCompare(a.updatedAt ?? a.createdAt ?? a.endDate))[0] ?? null;
 
   return (
     <DrawerFrame title={unit.label} subtitle={unit.floor} onClose={onClose}>
@@ -580,10 +649,38 @@ function UnitDrawer({
       ) : null}
       {activeTab === "bail" ? (
         <div className="mt-6 grid gap-3">
-          <InfoCard label="Début du bail" value={occupancy.leaseStartDate} />
-          <InfoCard label="Fin du bail" value={occupancy.leaseEndDate} />
-          <InfoCard label="Loyer" value={`${currency.format(occupancy.monthlyRent)} / mois`} />
-          <InfoCard label="Notes" value={unit.notes} />
+          {activeLease ? (
+            <>
+              <InfoCard label="Statut" value="Actif" />
+              <InfoCard label="Début du bail" value={activeLease.startDate} />
+              <InfoCard label="Fin prévue du bail" value={activeLease.endDate} />
+              <InfoCard label="Loyer" value={`${currency.format(activeLease.monthlyRent)} / mois`} />
+              <InfoCard label="Statut des paiements" value={rentPaymentStatusLabel[activeLease.paymentStatus]} />
+              <InfoCard label="Notes" value={activeLease.notes || "Aucune note"} />
+              <button className="btn-danger mt-2" onClick={() => onTerminateLease(unit)} type="button">
+                Terminer le bail
+              </button>
+            </>
+          ) : latestLease ? (
+            <>
+              <InfoCard label="Statut" value={formatLeaseStatus(latestLease.status)} />
+              <InfoCard label="Début du bail" value={latestLease.startDate} />
+              <InfoCard label="Fin prévue du bail" value={latestLease.endDate} />
+              <InfoCard label="Date de fin réelle" value={latestLease.actualEndDate ?? "Non précisée"} />
+              <InfoCard label="Loyer" value={`${currency.format(latestLease.monthlyRent)} / mois`} />
+              <InfoCard label="Notes" value={latestLease.notes || "Aucune note"} />
+            </>
+          ) : (
+            <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-5">
+              <p className="text-lg font-semibold text-[var(--foreground)]">Aucun bail actif</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                Ce logement est vacant. Ajoutez un locataire pour créer un nouveau bail actif.
+              </p>
+              <button className="btn-primary mt-4" onClick={() => onOpenTenantAssignment(unit)} type="button">
+                Ajouter un locataire
+              </button>
+            </div>
+          )}
         </div>
       ) : null}
       {activeTab === "paiements" ? <PaymentList payments={unit.payments} /> : null}
@@ -604,7 +701,7 @@ function UnitDrawer({
             propertyId={unit.propertyId}
             targetId={unit.id}
             targetType="logement"
-            tenantId={unit.tenantId}
+            tenantId={occupancy.tenantId}
             title={`Notes · ${unit.label}`}
             unitId={unit.id}
           />
@@ -654,11 +751,32 @@ function UnitTenantModal({
           <TextInput label="Loyer mensuel" type="number" value={form.monthlyRent} onChange={(monthlyRent) => onChange({ ...form, monthlyRent })} />
           <TextInput label="Date de début du bail" type="date" value={form.leaseStartDate} onChange={(leaseStartDate) => onChange({ ...form, leaseStartDate })} />
           <TextInput label="Date de fin du bail" type="date" value={form.leaseEndDate} onChange={(leaseEndDate) => onChange({ ...form, leaseEndDate })} />
-          <SelectField label="Statut paiement" value={form.paymentStatus} onChange={(paymentStatus) => onChange({ ...form, paymentStatus: paymentStatus as PaymentStatus })}>
+          <SelectField
+            label="Statut paiement"
+            value={form.paymentStatus}
+            onChange={(paymentStatus) => onChange(updateUnitTenantPaymentStatus(form, paymentStatus as InitialPaymentStatus))}
+          >
             <option value="paid">Payé</option>
+            <option value="partial">Partiel</option>
             <option value="dueSoon">Dû bientôt</option>
             <option value="late">En retard</option>
           </SelectField>
+          {form.paymentStatus === "partial" ? (
+            <TextInput
+              label="Montant reçu"
+              type="number"
+              value={form.initialAmountPaid}
+              onChange={(initialAmountPaid) => onChange({ ...form, initialAmountPaid })}
+            />
+          ) : null}
+          {form.paymentStatus === "paid" || form.paymentStatus === "partial" ? (
+            <TextInput
+              label="Date de réception du paiement"
+              type="date"
+              value={form.paymentReceivedDate}
+              onChange={(paymentReceivedDate) => onChange({ ...form, paymentReceivedDate })}
+            />
+          ) : null}
           <label className="grid gap-1 text-sm font-medium text-[var(--muted)] md:col-span-2">
             Notes optionnelles
             <textarea
@@ -679,39 +797,6 @@ function UnitTenantModal({
           </button>
           <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-40" disabled={!canSave} onClick={onSave} type="button">
             Enregistrer le locataire
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ConfirmModal({
-  cancelLabel,
-  confirmLabel,
-  message,
-  onCancel,
-  onConfirm,
-  title,
-}: {
-  cancelLabel: string;
-  confirmLabel: string;
-  message: string;
-  onCancel: () => void;
-  onConfirm: () => void;
-  title: string;
-}) {
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
-        <h2 className="text-xl font-semibold text-[var(--foreground)]">{title}</h2>
-        <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{message}</p>
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button className="btn-secondary" onClick={onCancel} type="button">
-            {cancelLabel}
-          </button>
-          <button className="btn-danger" onClick={onConfirm} type="button">
-            {confirmLabel}
           </button>
         </div>
       </div>
@@ -940,12 +1025,53 @@ function createEmptyUnitTenantForm(unit?: UnitDashboard): UnitTenantForm {
     leaseStartDate: "2026-07-01",
     leaseEndDate: "2027-06-30",
     paymentStatus: "dueSoon",
+    initialAmountPaid: "",
+    paymentReceivedDate: "",
     notes: "",
   };
 }
 
 function isUnitTenantFormValid(form: UnitTenantForm) {
-  return Boolean(form.fullName.trim() && Number(form.monthlyRent) > 0);
+  return Boolean(
+    form.fullName.trim() &&
+      Number(form.monthlyRent) > 0 &&
+      form.leaseStartDate &&
+      form.leaseEndDate &&
+      (form.paymentStatus !== "paid" && form.paymentStatus !== "partial" || isPaymentReceivedDateValid(form.paymentReceivedDate)) &&
+      (form.paymentStatus !== "partial" || isPartialPaymentAmountValid(form.initialAmountPaid, form.monthlyRent)),
+  );
+}
+
+function updateUnitTenantPaymentStatus(form: UnitTenantForm, paymentStatus: InitialPaymentStatus): UnitTenantForm {
+  return {
+    ...form,
+    paymentStatus,
+    initialAmountPaid: paymentStatus === "partial" ? form.initialAmountPaid : "",
+    paymentReceivedDate: paymentStatus === "paid" || paymentStatus === "partial" ? form.paymentReceivedDate || getTodayIsoDate() : "",
+  };
+}
+
+function isPaymentReceivedDateValid(paymentReceivedDate: string) {
+  return Boolean(paymentReceivedDate) && paymentReceivedDate <= getTodayIsoDate();
+}
+
+function isPartialPaymentAmountValid(initialAmountPaid: string, monthlyRent: string) {
+  const amountPaid = Number(initialAmountPaid);
+  const amountDue = Number(monthlyRent);
+
+  return amountPaid > 0 && amountPaid < amountDue;
+}
+
+function formatLeaseStatus(status: Lease["status"]) {
+  if (status === "active") {
+    return "Actif";
+  }
+
+  if (status === "ended") {
+    return "Terminé";
+  }
+
+  return "Archivé";
 }
 
 function formatDate(date: string) {

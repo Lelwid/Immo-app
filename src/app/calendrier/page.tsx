@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
 import { loadPortfolioSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
-import { documentTypeLabel, getPropertyName, getTenantName, getUnitLabel } from "@/lib/mockData";
+import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
+import { documentTypeLabel, getPropertyName, getUnitLabel } from "@/lib/mockData";
 import type { LocalStore } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
@@ -398,39 +399,38 @@ function InfoCard({ label, value }: { label: string; value: string }) {
 function getOperationalEvents(store: LocalStore): OperationalEvent[] {
   const events: OperationalEvent[] = [];
 
-  for (const payment of store.payments) {
-    const paid = payment.status === "payé";
-    const late = payment.status === "en retard";
+  for (const charge of buildRentLedger(store).rows) {
+    const rentState = getCalendarRentState(charge);
 
     events.push({
-      id: `rent-due-${payment.id}`,
-      title: paid ? `Paiement reçu · ${getUnitLabel(payment.unitId, store)}` : `Loyer dû · ${getUnitLabel(payment.unitId, store)}`,
-      dueDate: payment.dueDate,
+      id: `rent-charge-${charge.id}`,
+      title: `${rentState.title} · ${getUnitLabel(charge.unitId, store)}`,
+      dueDate: charge.dueDate,
       type: "paiements",
-      typeLabel: paid ? "Paiement réussi" : "Loyer",
-      color: paid ? "green" : late ? "red" : "orange",
-      urgency: paid ? "ok" : late ? "urgent" : "attention",
-      property: getPropertyName(payment.propertyId, store),
-      unit: getUnitLabel(payment.unitId, store),
-      tenant: getTenantName(payment.tenantId, store),
-      description: paid ? "Le paiement a été reçu." : "Le loyer doit être suivi à cette date.",
-      href: `/dashboard?property=${payment.propertyId}&unit=${payment.unitId}&tab=paiements`,
+      typeLabel: rentState.typeLabel,
+      color: rentState.color,
+      urgency: rentState.urgency,
+      property: getPropertyName(charge.propertyId, store),
+      unit: getUnitLabel(charge.unitId, store),
+      tenant: getRentChargeTenantName(charge, store),
+      description: rentState.description,
+      href: `/dashboard?property=${charge.propertyId}&unit=${charge.unitId}&tab=paiements`,
     });
 
-    if (late) {
+    if (rentState.isLate) {
       events.push({
-        id: `payment-reminder-${payment.id}`,
-        title: `Suivi retard · ${getUnitLabel(payment.unitId, store)}`,
+        id: `payment-reminder-${charge.id}`,
+        title: `Suivi retard · ${getUnitLabel(charge.unitId, store)}`,
         dueDate: today(),
         type: "paiements",
         typeLabel: "Rappel paiement",
         color: "red",
         urgency: "urgent",
-        property: getPropertyName(payment.propertyId, store),
-        unit: getUnitLabel(payment.unitId, store),
-        tenant: getTenantName(payment.tenantId, store),
+        property: getPropertyName(charge.propertyId, store),
+        unit: getUnitLabel(charge.unitId, store),
+        tenant: getRentChargeTenantName(charge, store),
         description: "Envoyer un rappel au locataire pour le paiement en retard.",
-        href: `/dashboard?property=${payment.propertyId}&unit=${payment.unitId}&tab=paiements`,
+        href: `/dashboard?property=${charge.propertyId}&unit=${charge.unitId}&tab=paiements`,
       });
     }
   }
@@ -533,6 +533,83 @@ function getOperationalEvents(store: LocalStore): OperationalEvent[] {
   }
 
   return events.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+}
+
+function getCalendarRentState(charge: RentChargeRow): {
+  color: EventColor;
+  description: string;
+  isLate: boolean;
+  title: string;
+  typeLabel: string;
+  urgency: EventUrgency;
+} {
+  const paid = charge.balance <= 0;
+  const paidInAdvance = paid && Boolean(charge.lastPaymentAt) && charge.lastPaymentAt < charge.dueDate;
+  const partial = charge.balance > 0 && charge.amountAllocated > 0;
+  const late = charge.balance > 0 && charge.dueDate < today();
+
+  if (paidInAdvance) {
+    return {
+      color: "green",
+      description: "Le loyer a été payé avant son échéance.",
+      isLate: false,
+      title: "Loyer payé d'avance",
+      typeLabel: "Paiement réussi",
+      urgency: "ok",
+    };
+  }
+
+  if (paid) {
+    return {
+      color: "green",
+      description: "Le loyer a été payé.",
+      isLate: false,
+      title: "Loyer payé",
+      typeLabel: "Paiement réussi",
+      urgency: "ok",
+    };
+  }
+
+  if (partial) {
+    return {
+      color: "orange",
+      description: "Un paiement partiel a été reçu, mais un solde demeure ouvert.",
+      isLate: false,
+      title: "Loyer partiellement payé",
+      typeLabel: "Paiement partiel",
+      urgency: "attention",
+    };
+  }
+
+  if (late) {
+    return {
+      color: "red",
+      description: "Le loyer est en retard et demande un suivi.",
+      isLate: true,
+      title: "Loyer en retard",
+      typeLabel: "Loyer en retard",
+      urgency: "urgent",
+    };
+  }
+
+  return {
+    color: "orange",
+    description: "Le loyer est à venir et doit être suivi à cette date.",
+    isLate: false,
+    title: "Loyer à venir",
+    typeLabel: "Loyer à venir",
+    urgency: "attention",
+  };
+}
+
+function getRentChargeTenantName(charge: RentChargeRow, store: LocalStore) {
+  const tenant = charge.tenantId ? store.tenants.find((candidate) => candidate.id === charge.tenantId && !candidate.archivedAt) : null;
+
+  if (!tenant) {
+    return "Locataire introuvable";
+  }
+
+  return tenant.fullName?.trim() || `${tenant.firstName} ${tenant.lastName}`.trim();
 }
 
 function getDefaultMonth(store: LocalStore) {

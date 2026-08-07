@@ -5,6 +5,7 @@ import { getMaintenanceRequests } from "@/lib/data/maintenanceService";
 import { getNotes } from "@/lib/data/notesService";
 import { getPayments } from "@/lib/data/paymentsService";
 import { getProperties } from "@/lib/data/propertiesService";
+import { getPaymentAllocations, getPaymentTransactions, getRentCharges } from "@/lib/data/rentLedgerService";
 import { getTasks } from "@/lib/data/tasksService";
 import { getTenants } from "@/lib/data/tenantsService";
 import { getUnits } from "@/lib/data/unitsService";
@@ -19,6 +20,7 @@ const cacheTtlMs = 15_000;
 let cachedSnapshot: PortfolioSnapshot | null = null;
 let cachedAt = 0;
 let pendingSnapshot: Promise<PortfolioSnapshot> | null = null;
+let snapshotGeneration = 0;
 
 export async function loadPortfolioSnapshot(options: { force?: boolean } = {}): Promise<PortfolioSnapshot> {
   const now = Date.now();
@@ -31,16 +33,22 @@ export async function loadPortfolioSnapshot(options: { force?: boolean } = {}): 
     return pendingSnapshot;
   }
 
-  pendingSnapshot = fetchPortfolioSnapshot()
+  const requestGeneration = snapshotGeneration;
+  const request = fetchPortfolioSnapshot()
     .then((snapshot) => {
-      cachedSnapshot = snapshot;
-      cachedAt = Date.now();
+      if (requestGeneration === snapshotGeneration) {
+        cachedSnapshot = snapshot;
+        cachedAt = Date.now();
+      }
       return snapshot;
     })
     .finally(() => {
-      pendingSnapshot = null;
+      if (pendingSnapshot === request) {
+        pendingSnapshot = null;
+      }
     });
 
+  pendingSnapshot = request;
   return pendingSnapshot;
 }
 
@@ -49,6 +57,7 @@ export async function refreshSnapshot(): Promise<PortfolioSnapshot> {
 }
 
 export function clearPortfolioSnapshotCache() {
+  snapshotGeneration += 1;
   cachedSnapshot = null;
   cachedAt = 0;
   pendingSnapshot = null;
@@ -67,17 +76,23 @@ async function fetchPortfolioSnapshot(): Promise<PortfolioSnapshot> {
       documents,
       maintenanceRequests,
       tasks,
+      rentCharges,
+      paymentTransactions,
+      paymentAllocations,
     ] = await Promise.all([
-      getProperties(),
-      getUnits(),
-      getTenants(),
-      getLeases(),
-      getPayments(),
-      getNotes(),
-      getActivities(),
-      getDocuments(),
-      getMaintenanceRequests(),
-      getTasks(),
+      loadSnapshotDomain("properties", getProperties),
+      loadSnapshotDomain("units", getUnits),
+      loadSnapshotDomain("tenants", getTenants),
+      loadSnapshotDomain("leases", getLeases),
+      loadSnapshotDomain("payments", getPayments),
+      loadSnapshotDomain("notes", getNotes),
+      loadSnapshotDomain("activities", getActivities),
+      loadSnapshotDomain("documents", getDocuments),
+      loadSnapshotDomain("maintenanceRequests", getMaintenanceRequests),
+      loadSnapshotDomain("tasks", getTasks),
+      loadSnapshotDomain("rentCharges", getRentCharges),
+      loadSnapshotDomain("paymentTransactions", getPaymentTransactions),
+      loadSnapshotDomain("paymentAllocations", getPaymentAllocations),
     ]);
 
     return normalizeSnapshot({
@@ -90,12 +105,46 @@ async function fetchPortfolioSnapshot(): Promise<PortfolioSnapshot> {
       activities,
       documents,
       maintenanceTickets: maintenanceRequests,
+      rentCharges,
+      paymentTransactions,
+      paymentAllocations,
       tasks,
     });
   } catch (error) {
-    console.error("Impossible de charger l'instantané du portefeuille.", error);
-    throw new Error("Impossible de charger les données du portefeuille.");
+    console.error("Impossible de charger l'instantané du portefeuille.", {
+      cause: error,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw createPortfolioSnapshotError(error);
   }
+}
+
+async function loadSnapshotDomain<T>(domain: string, loader: () => Promise<T>): Promise<T> {
+  try {
+    return await loader();
+  } catch (error) {
+    console.error(`[portfolioSnapshotService] Domaine impossible à charger: ${domain}.`, {
+      cause: (error as Error & { cause?: unknown })?.cause ?? error,
+      domain,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw createPortfolioDomainError(domain, error);
+  }
+}
+
+function createPortfolioDomainError(domain: string, cause: unknown) {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const error = new Error(process.env.NODE_ENV === "development" ? `Impossible de charger le domaine ${domain}. ${message}` : "Impossible de charger les données du portefeuille.");
+  (error as Error & { cause?: unknown; domain?: string }).cause = cause;
+  (error as Error & { domain?: string }).domain = domain;
+  return error;
+}
+
+function createPortfolioSnapshotError(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const error = new Error(process.env.NODE_ENV === "development" ? `Impossible de charger les données du portefeuille. ${message}` : "Impossible de charger les données du portefeuille.");
+  (error as Error & { cause?: unknown }).cause = cause;
+  return error;
 }
 
 function normalizeSnapshot(store: LocalStore): PortfolioSnapshot {
@@ -104,6 +153,9 @@ function normalizeSnapshot(store: LocalStore): PortfolioSnapshot {
   const tenants = uniqueById(store.tenants);
   const leases = uniqueById(store.leases);
   const payments = uniqueById(store.payments);
+  const rentCharges = uniqueById(store.rentCharges ?? []);
+  const paymentTransactions = uniqueById(store.paymentTransactions ?? []);
+  const paymentAllocations = uniqueById(store.paymentAllocations ?? []);
   const notes = uniqueById(store.notes);
   const activities = uniqueById(store.activities);
   const documents = uniqueById(store.documents);
@@ -116,6 +168,9 @@ function normalizeSnapshot(store: LocalStore): PortfolioSnapshot {
     tenants,
     leases,
     payments,
+    rentCharges,
+    paymentTransactions,
+    paymentAllocations,
     notes,
     activities,
     documents,

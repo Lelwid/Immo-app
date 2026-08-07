@@ -5,14 +5,18 @@ import { useEffect, useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
 import { loadPortfolioSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
+import {
+  getFinanceSummary,
+  getOccupancyRate,
+  getRevenueChartData,
+  getScopedFinancePayments,
+} from "@/lib/financeCalculations";
 import { currency, getPropertyDashboards, getPropertyName, getTenantName, getUnitLabel } from "@/lib/mockData";
 import { exportFinancialReport } from "@/lib/reportExports";
 import type { LocalStore, PaymentRecord, PropertyDashboard } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
 type PeriodFilter = "mois" | "12mois";
-
-const mockNetCashflow = 4280;
 
 export default function FinancesPage() {
   const { store } = useLocalStore();
@@ -24,18 +28,10 @@ export default function FinancesPage() {
   const snapshotStore = snapshot ?? store;
   const properties = useMemo(() => getPropertyDashboards(snapshotStore), [snapshotStore]);
   const selectedProperty = properties.find((property) => property.id === propertyFilter) ?? null;
-  const scopedPayments = useMemo(
-    () =>
-      snapshotStore.payments.filter((payment) => {
-        const propertyMatches = propertyFilter === "portfolio" || payment.propertyId === propertyFilter;
-        const periodMatches = periodFilter === "12mois" || payment.month === getCurrentMonth(snapshotStore);
-        return propertyMatches && periodMatches;
-      }),
-    [periodFilter, propertyFilter, snapshotStore],
-  );
+  const scopedPayments = useMemo(() => getScopedFinancePayments(snapshotStore, { period: periodFilter, propertyId: propertyFilter }), [periodFilter, propertyFilter, snapshotStore]);
   const scopedProperties = propertyFilter === "portfolio" ? properties : selectedProperty ? [selectedProperty] : [];
-  const summary = getFinanceSummary(snapshotStore, scopedPayments, scopedProperties);
-  const chartData = getRevenueChartData(snapshotStore, propertyFilter, periodFilter);
+  const summary = getFinanceSummary(snapshotStore, { period: periodFilter, propertyId: propertyFilter }, scopedProperties.flatMap((property) => property.units));
+  const chartData = getRevenueChartData(snapshotStore, { period: periodFilter, propertyId: propertyFilter });
   const risks = getUpcomingRisks(snapshotStore, scopedProperties, scopedPayments);
 
   useEffect(() => {
@@ -74,7 +70,7 @@ export default function FinancesPage() {
     >
       <section className="grid gap-5">
         <div className="flex justify-end">
-          <button className="btn-primary" onClick={() => exportFinancialReport(snapshotStore)} type="button">
+          <button className="btn-primary" onClick={() => exportFinancialReport(snapshotStore, { period: periodFilter, propertyId: propertyFilter })} type="button">
             Exporter le rapport financier
           </button>
         </div>
@@ -143,7 +139,7 @@ export default function FinancesPage() {
           <KpiCard label="Solde impayé" value={currency.format(summary.balanceDue)} tone={summary.balanceDue > 0 ? "issue" : "ok"} />
           <KpiCard label="Taux d'occupation" value={`${summary.occupancyRate} %`} />
           <KpiCard label="Paiements en retard" value={summary.latePayments.toString()} tone={summary.latePayments > 0 ? "issue" : "ok"} />
-          <KpiCard label="Cashflow net" value={currency.format(mockNetCashflow)} tone="ok" />
+          <KpiCard label="Flux de trésorerie reçu" value={currency.format(summary.netCashflow)} tone={summary.netCashflow >= 0 ? "ok" : "issue"} />
         </div>
 
         <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -266,7 +262,7 @@ function QuickActions() {
 }
 
 function PropertyBreakdown({ property, store }: { property: PropertyDashboard; store: LocalStore }) {
-  const payments = store.payments.filter((payment) => payment.propertyId === property.id && payment.month === getCurrentMonth(store));
+  const payments = getScopedFinancePayments(store, { period: "mois", propertyId: property.id });
   const monthlyIncome = payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
   const latePayments = payments.filter((payment) => payment.status === "en retard").length;
   const openTickets = store.maintenanceTickets.filter((ticket) => ticket.propertyId === property.id && ticket.status !== "resolved");
@@ -293,38 +289,6 @@ function BreakdownItem({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{value}</p>
     </div>
   );
-}
-
-function getFinanceSummary(store: LocalStore, payments: PaymentRecord[], properties: PropertyDashboard[]) {
-  const expected = payments.reduce((sum, payment) => sum + payment.amountDue, 0);
-  const received = payments.reduce((sum, payment) => sum + payment.amountPaid, 0);
-  const latePayments = payments.filter((payment) => payment.status === "en retard").length;
-  const units = properties.flatMap((property) => property.units);
-
-  return {
-    expected,
-    received,
-    balanceDue: Math.max(0, expected - received),
-    occupancyRate: getOccupancyRate(units, store),
-    latePayments,
-    store,
-  };
-}
-
-function getRevenueChartData(store: LocalStore, propertyId: string, period: PeriodFilter) {
-  const months = period === "mois" ? [getCurrentMonth(store)] : getLastMonths(getCurrentMonth(store), 12);
-
-  return months.map((month) => {
-    const payments = store.payments.filter(
-      (payment) => payment.month === month && (propertyId === "portfolio" || payment.propertyId === propertyId),
-    );
-
-    return {
-      month,
-      expected: payments.reduce((sum, payment) => sum + payment.amountDue, 0),
-      received: payments.reduce((sum, payment) => sum + payment.amountPaid, 0),
-    };
-  });
 }
 
 function getUpcomingRisks(store: LocalStore, properties: PropertyDashboard[], payments: PaymentRecord[]) {
@@ -390,37 +354,6 @@ function getUpcomingRisks(store: LocalStore, properties: PropertyDashboard[], pa
   }
 
   return risks.slice(0, 8);
-}
-
-function getCurrentMonth(store: LocalStore) {
-  return store.payments.map((payment) => payment.month).sort().at(-1) ?? new Date().toISOString().slice(0, 7);
-}
-
-function getLastMonths(currentMonth: string, count: number) {
-  const [year, month] = currentMonth.split("-").map(Number);
-  const months: string[] = [];
-
-  for (let index = count - 1; index >= 0; index -= 1) {
-    const date = new Date(year, month - 1 - index, 1);
-    months.push(date.toISOString().slice(0, 7));
-  }
-
-  return months;
-}
-
-function getOccupancyRate(units: { id: string }[], store?: LocalStore) {
-  if (units.length === 0) {
-    return 0;
-  }
-
-  if (!store) {
-    return 0;
-  }
-
-  return Math.round((units.filter((unit) => {
-    const storeUnit = store.units.find((candidate) => candidate.id === unit.id);
-    return storeUnit ? getUnitOccupancy(storeUnit, store.leases, store.tenants).isOccupied : false;
-  }).length / units.length) * 100);
 }
 
 function getMockMaintenanceCost(priority: string) {
