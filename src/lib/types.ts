@@ -45,9 +45,20 @@ export type Property = {
   id: string;
   name: string;
   address: string;
+  addressLine1?: string;
+  streetNumber?: string;
+  street?: string;
   city: string;
-  province: "QC";
+  district?: string;
+  province: string;
+  provinceCode?: string;
   postalCode: string;
+  country?: string;
+  countryCode?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  addressProvider?: string | null;
+  addressProviderId?: string | null;
   propertyType: "triplex" | "duplex" | "condo" | "quadruplex" | "immeuble";
 };
 
@@ -113,11 +124,13 @@ export type MaintenanceTicket = {
   id: string;
   propertyId: string;
   unitId: string;
+  tenantId?: string | null;
   title: string;
   description: string;
   status: TicketStatus;
   priority: TicketPriority;
   createdAt: string;
+  completedAt?: string | null;
 };
 
 export type UnitActivity = {
@@ -150,6 +163,162 @@ export type PropertyDocument = {
   mimeType?: string;
   size?: number;
   notes?: string;
+  visibility?: "private" | "tenant";
+};
+
+export type MaintenanceAttachment = {
+  id: string;
+  maintenanceRequestId: string;
+  tenantId?: string | null;
+  fileName: string;
+  storagePath: string;
+  mimeType?: string | null;
+  size?: number | null;
+  createdAt: string;
+};
+
+export type LeaseExtraction = {
+  tenantName?: string | null;
+  tenantEmail?: string | null;
+  tenantPhone?: string | null;
+  propertyAddress?: string | null;
+  propertyCity?: string | null;
+  propertyProvince?: string | null;
+  propertyPostalCode?: string | null;
+  unitName?: string | null;
+  unitNumber?: string | null;
+  bedroomCount?: number | null;
+  parking?: string | null;
+  landlordName?: string | null;
+  landlordAddress?: string | null;
+  landlordPhone?: string | null;
+  landlordEmail?: string | null;
+  monthlyRent?: number | null;
+  paymentFrequency?: string | null;
+  leaseStartDate?: string | null;
+  leaseEndDate?: string | null;
+  leaseDuration?: string | null;
+  signedDate?: string | null;
+  dueDay?: number | null;
+  paymentMethod?: string | null;
+  securityDeposit?: number | null;
+  signerNames?: string[] | null;
+  inclusions?: {
+    appliances?: boolean | null;
+    electricity?: boolean | null;
+    furniture?: boolean | null;
+    heating?: boolean | null;
+    hotWater?: boolean | null;
+    internet?: boolean | null;
+    parking?: boolean | null;
+    water?: boolean | null;
+    other?: string | null;
+  };
+  importantNotes?: string | null;
+  documentType?: string | null;
+  confidenceByField?: Record<string, number>;
+  sourceTextByField?: Record<string, string | null>;
+  structuredFields?: LeaseStructuredExtraction;
+};
+
+export type DocumentAiExtractionStatus = "pending" | "processing" | "completed" | "failed";
+export type DocumentAiExtractionMethod = "native" | "ocr" | "vision";
+export type DocumentAnalysisErrorCode =
+  | "PDF_READ_ERROR"
+  | "PDF_INVALID"
+  | "IMAGE_INVALID"
+  | "IMAGE_QUALITY_ERROR"
+  | "OCR_REQUIRED"
+  | "OCR_NOT_CONFIGURED"
+  | "OCR_ERROR"
+  | "OPENAI_NOT_CONFIGURED"
+  | "AI_MODEL_NOT_CONFIGURED"
+  | "OPENAI_AUTH_ERROR"
+  | "OPENAI_MODEL_ERROR"
+  | "OPENAI_RATE_LIMIT"
+  | "AI_ANALYSIS_ERROR"
+  | "AI_SCHEMA_ERROR"
+  | "DATABASE_ERROR"
+  | "DOCUMENT_NOT_FOUND"
+  | "DOCUMENT_FILE_MISSING"
+  | "UNAUTHORIZED"
+  | "UNSUPPORTED_DOCUMENT";
+
+export type AiField<T> = {
+  value: T | null;
+  confidence: number;
+  sourceText?: string | null;
+};
+
+export type LeaseStructuredExtraction = {
+  property: {
+    address: AiField<string>;
+    bedroomCount: AiField<number>;
+    city: AiField<string>;
+    parking: AiField<string>;
+    postalCode: AiField<string>;
+    province: AiField<string>;
+    unit: AiField<string>;
+  };
+  landlord: {
+    address: AiField<string>;
+    email: AiField<string>;
+    name: AiField<string>;
+    phone: AiField<string>;
+  };
+  tenants: Array<{
+    email: AiField<string>;
+    firstName: AiField<string>;
+    lastName: AiField<string>;
+    phone: AiField<string>;
+  }>;
+  lease: {
+    duration: AiField<string>;
+    endDate: AiField<string>;
+    signedDate: AiField<string>;
+    startDate: AiField<string>;
+  };
+  rent: {
+    amount: AiField<number>;
+    frequency: AiField<string>;
+    paymentDay: AiField<number>;
+    paymentMethod: AiField<string>;
+  };
+  inclusions: {
+    appliances: AiField<boolean>;
+    electricity: AiField<boolean>;
+    furniture: AiField<boolean>;
+    heating: AiField<boolean>;
+    hotWater: AiField<boolean>;
+    internet: AiField<boolean>;
+    other: AiField<string>;
+    parking: AiField<boolean>;
+    water: AiField<boolean>;
+  };
+  rules: {
+    animals: AiField<string>;
+    importantNotes: AiField<string>;
+    smoking: AiField<string>;
+    subletting: AiField<string>;
+  };
+  documentType: AiField<string>;
+};
+
+export type DocumentAiExtraction = {
+  id: string;
+  documentId: string;
+  status: DocumentAiExtractionStatus;
+  documentType?: string | null;
+  extractionMethod?: DocumentAiExtractionMethod | null;
+  pageCount?: number | null;
+  rawText?: string | null;
+  structuredData: LeaseExtraction;
+  confidence: Record<string, number>;
+  model?: string | null;
+  errorMessage?: string | null;
+  analyzedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AppNote = {

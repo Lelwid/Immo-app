@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { DEMO_AUTH_KEY, useAuth } from "@/lib/auth/AuthProvider";
 
@@ -9,20 +9,33 @@ type AuthMode = "connexion" | "inscription" | "reset";
 
 export function AuthCard({ mode }: { mode: AuthMode }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { configured, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<"error" | "success">("success");
   const [submitting, setSubmitting] = useState(false);
   const isReset = mode === "reset";
   const isSignup = mode === "inscription";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
+
+    const validationMessage = validateAuthForm({ email, password, isReset, isSignup });
+    if (validationMessage) {
+      setMessageTone("error");
+      setMessage(validationMessage);
+      return;
+    }
+
     setSubmitting(true);
     setMessage("");
 
-    const result = isReset
+    const result: { error?: string; confirmationRequired?: boolean } = isReset
       ? await resetPassword(email)
       : isSignup
         ? await signUpWithEmail(email, password)
@@ -31,43 +44,52 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     setSubmitting(false);
 
     if (result.error) {
-      setMessage(result.error);
+      setMessageTone("error");
+      setMessage(getFriendlyAuthError(result.error, mode));
       return;
     }
 
     if (isReset) {
+      setMessageTone("success");
       setMessage("Un courriel de réinitialisation a été envoyé si le compte existe.");
       return;
     }
 
     if (isSignup) {
-      setMessage("Compte créé. Vérifiez votre courriel si la confirmation est activée.");
+      if (result.confirmationRequired) {
+        setMessageTone("success");
+        setMessage("Vérifiez votre courriel pour confirmer votre compte, puis revenez dans Habixa.");
+        return;
+      }
+
+      router.replace("/onboarding");
       return;
     }
 
-    router.replace("/dashboard");
+    router.replace(getSafeRedirect(searchParams.get("redirect")));
   }
 
   async function loginGoogle() {
     setSubmitting(true);
-    const result = await signInWithGoogle();
+    const result = await signInWithGoogle(getSafeRedirect(searchParams.get("redirect")));
     setSubmitting(false);
 
     if (result.error) {
-      setMessage(result.error);
+      setMessageTone("error");
+      setMessage(getFriendlyAuthError(result.error, mode));
     }
   }
 
   function enterDemoMode() {
     window.localStorage.setItem(DEMO_AUTH_KEY, "true");
-    router.replace("/dashboard");
+    router.replace(getSafeRedirect(searchParams.get("redirect")));
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-8 text-[var(--foreground)]">
       <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
         <div className="mb-6">
-          <p className="text-sm font-medium text-[var(--muted)]">Gestionnaire Immo</p>
+          <p className="text-sm font-medium text-[var(--muted)]">Habixa</p>
           <h1 className="mt-1 text-3xl font-semibold">
             {isReset ? "Mot de passe oublié" : isSignup ? "Créer un compte" : "Connexion"}
           </h1>
@@ -80,13 +102,18 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
 
         {!configured ? (
           <div className="mb-4 rounded-lg border border-[color:var(--yellow)]/40 bg-[color:var(--yellow)]/10 p-3 text-sm text-[color:var(--yellow)]">
-            Supabase Auth n’est pas encore configuré. Ajoutez vos clés dans `.env.local`.
+            L’authentification est temporairement indisponible. Réessayez plus tard.
           </div>
         ) : null}
 
         <form className="grid gap-3" onSubmit={submit}>
-          <TextInput label="Courriel" type="email" value={email} onChange={setEmail} />
-          {!isReset ? <TextInput label="Mot de passe" type="password" value={password} onChange={setPassword} /> : null}
+          <TextInput autoComplete="email" label="Courriel" type="email" value={email} onChange={setEmail} />
+          {!isReset ? (
+            <>
+              <TextInput autoComplete={isSignup ? "new-password" : "current-password"} label="Mot de passe" minLength={isSignup ? 8 : undefined} type="password" value={password} onChange={setPassword} />
+              {isSignup ? <p className="text-xs text-[var(--muted)]">Au moins 8 caractères.</p> : null}
+            </>
+          ) : null}
           <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !email || (!isReset && !password)} type="submit">
             {submitting ? "Un instant..." : isReset ? "Envoyer le lien" : isSignup ? "S’inscrire" : "Se connecter"}
           </button>
@@ -104,7 +131,19 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
           </button>
         ) : null}
 
-        {message ? <p className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">{message}</p> : null}
+        {message ? (
+          <p
+            aria-live="polite"
+            className={`mt-4 rounded-lg border p-3 text-sm ${
+              messageTone === "error"
+                ? "border-[color:var(--red)]/40 bg-[color:var(--red)]/10 text-[color:var(--red)]"
+                : "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[var(--foreground)]"
+            }`}
+            role={messageTone === "error" ? "alert" : "status"}
+          >
+            {message}
+          </p>
+        ) : null}
 
         <div className="mt-6 grid gap-2 text-sm text-[var(--muted)]">
           {mode === "connexion" ? (
@@ -127,13 +166,25 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
   );
 }
 
+function getSafeRedirect(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/dashboard";
+  }
+
+  return value;
+}
+
 function TextInput({
+  autoComplete,
   label,
+  minLength,
   onChange,
   type,
   value,
 }: {
+  autoComplete?: string;
   label: string;
+  minLength?: number;
   onChange: (value: string) => void;
   type: string;
   value: string;
@@ -142,11 +193,75 @@ function TextInput({
     <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
       {label}
       <input
+        autoComplete={autoComplete}
         className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
+        minLength={minLength}
+        name={type === "email" ? "email" : "password"}
+        required
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
   );
+}
+
+function validateAuthForm({
+  email,
+  isReset,
+  isSignup,
+  password,
+}: {
+  email: string;
+  isReset: boolean;
+  isSignup: boolean;
+  password: string;
+}) {
+  if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+    return "Entrez une adresse courriel valide.";
+  }
+
+  if (!isReset && !password) {
+    return "Entrez votre mot de passe.";
+  }
+
+  if (isSignup && password.length < 8) {
+    return "Le mot de passe doit contenir au moins 8 caractères.";
+  }
+
+  return "";
+}
+
+function getFriendlyAuthError(error: string, mode: AuthMode) {
+  const normalized = error.toLowerCase();
+
+  if (normalized.includes("invalid login credentials") || normalized.includes("invalid credentials")) {
+    return "Courriel ou mot de passe incorrect.";
+  }
+
+  if (normalized.includes("email not confirmed")) {
+    return "Confirmez votre courriel avant de vous connecter.";
+  }
+
+  if (normalized.includes("user already registered") || normalized.includes("already been registered")) {
+    return "Un compte existe déjà avec ce courriel. Essayez de vous connecter.";
+  }
+
+  if (normalized.includes("password") && (normalized.includes("short") || normalized.includes("least"))) {
+    return "Le mot de passe ne respecte pas les exigences de sécurité.";
+  }
+
+  if (normalized.includes("rate limit") || normalized.includes("too many")) {
+    return "Trop de tentatives. Attendez quelques minutes avant de réessayer.";
+  }
+
+  if (mode === "inscription") {
+    return "Impossible de créer le compte. Vérifiez les informations et réessayez.";
+  }
+
+  if (mode === "reset") {
+    return "Impossible d’envoyer le courriel. Réessayez dans quelques instants.";
+  }
+
+  return "Impossible de vous connecter. Réessayez dans quelques instants.";
 }

@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { validateDocumentFile } from "@/lib/fileValidation";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { DocumentRelatedEntityType, DocumentType, PropertyDocument } from "@/lib/types";
@@ -27,6 +28,7 @@ type SupabaseDocumentRow = {
   uploaded_at: string;
   created_at?: string;
   updated_at?: string;
+  visibility?: string | null;
 };
 
 export type DocumentInput = {
@@ -46,6 +48,7 @@ export type DocumentInput = {
   mimeType?: string;
   size?: number;
   notes?: string;
+  visibility?: PropertyDocument["visibility"];
 };
 
 export type DocumentUpdateInput = Partial<DocumentInput>;
@@ -65,7 +68,15 @@ export async function getDocuments(): Promise<PropertyDocument[]> {
       .select(selectColumns)
       .order("uploaded_at", { ascending: false });
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(loadError, error, {
+        operation: "select",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(loadError);
     }
 
@@ -83,7 +94,16 @@ export async function getDocumentsForProperty(propertyId: string): Promise<Prope
       .eq("property_id", propertyId)
       .order("uploaded_at", { ascending: false });
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(loadError, error, {
+        filters: ["property_id"],
+        operation: "select",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(loadError);
     }
 
@@ -101,7 +121,16 @@ export async function getDocumentsForUnit(unitId: string): Promise<PropertyDocum
       .eq("unit_id", unitId)
       .order("uploaded_at", { ascending: false });
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(loadError, error, {
+        filters: ["unit_id"],
+        operation: "select",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(loadError);
     }
 
@@ -119,7 +148,16 @@ export async function getDocumentsForTenant(tenantId: string): Promise<PropertyD
       .eq("tenant_id", tenantId)
       .order("uploaded_at", { ascending: false });
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(loadError, error, {
+        filters: ["tenant_id"],
+        operation: "select",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(loadError);
     }
 
@@ -137,7 +175,16 @@ export async function getDocumentsForLease(leaseId: string): Promise<PropertyDoc
       .eq("lease_id", leaseId)
       .order("uploaded_at", { ascending: false });
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(loadError, error, {
+        filters: ["lease_id"],
+        operation: "select",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(loadError);
     }
 
@@ -162,7 +209,15 @@ export async function createDocument(input: DocumentInput): Promise<PropertyDocu
       .select(selectColumns)
       .single();
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(createError, error, {
+        operation: "insert",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(createError);
     }
 
@@ -250,7 +305,16 @@ export async function updateDocument(documentId: string, input: DocumentUpdateIn
       .select(selectColumns)
       .single();
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(updateError, error, {
+        filters: ["id"],
+        operation: "update",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(updateError);
     }
 
@@ -280,7 +344,11 @@ export async function deleteDocument(documentId: string): Promise<void> {
     const { error } = await supabase!.from(table).delete().eq("id", documentId);
 
     if (error) {
-      throw new Error(deleteError);
+      throw createDocumentsServiceError(deleteError, error, {
+        filters: ["id"],
+        operation: "delete",
+        table,
+      });
     }
 
     try {
@@ -303,7 +371,15 @@ export async function cleanupOnboardingPlaceholderDocuments(): Promise<number> {
   if (canUseSupabase()) {
     const { data, error } = await supabase!.from(table).select(selectColumns);
 
-    if (error || !data) {
+    if (error) {
+      throw createDocumentsServiceError(deleteError, error, {
+        operation: "select",
+        selectedColumns: selectColumns,
+        table,
+      });
+    }
+
+    if (!data) {
       throw new Error(deleteError);
     }
 
@@ -319,7 +395,11 @@ export async function cleanupOnboardingPlaceholderDocuments(): Promise<number> {
       .in("id", placeholders.map((document) => document.id));
 
     if (deletePlaceholdersError) {
-      throw new Error(deleteError);
+      throw createDocumentsServiceError(deleteError, deletePlaceholdersError, {
+        filters: ["id"],
+        operation: "delete",
+        table,
+      });
     }
 
     return placeholders.length;
@@ -351,6 +431,12 @@ export async function upsertDocument(document: PropertyDocument) {
 }
 
 export async function uploadDocumentFile(document: PropertyDocument, file: File): Promise<{ storagePath: string }> {
+  const validationError = validateDocumentFile(file);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
   if (!canUseSupabase()) {
     return { storagePath: "" };
   }
@@ -452,7 +538,7 @@ export function isOnboardingPlaceholderDocument(document: PropertyDocument) {
 }
 
 const selectColumns =
-  "id,user_id,property_id,unit_id,tenant_id,lease_id,title,document_type,file_name,file_url,storage_path,mime_type,size_bytes,related_entity_type,related_entity_id,notes,uploaded_at,created_at,updated_at";
+  "id,user_id,property_id,unit_id,tenant_id,lease_id,title,document_type,file_name,file_url,storage_path,mime_type,size_bytes,related_entity_type,related_entity_id,notes,uploaded_at,created_at,updated_at,visibility";
 
 function canUseSupabase() {
   return shouldUseSupabase() && isSupabaseConfigured && Boolean(supabase);
@@ -471,12 +557,50 @@ async function getCurrentUserId(errorMessage: string) {
 async function getDocumentById(documentId: string, errorMessage: string): Promise<PropertyDocument> {
   const { data, error } = await supabase!.from(table).select(selectColumns).eq("id", documentId).single();
 
-  if (error || !data) {
+  if (error) {
+    throw createDocumentsServiceError(errorMessage, error, {
+      filters: ["id"],
+      operation: "select",
+      selectedColumns: selectColumns,
+      table,
+    });
+  }
+
+  if (!data) {
     throw new Error(errorMessage);
   }
 
   return fromSupabaseRow(data);
 }
+
+function createDocumentsServiceError(
+  message: string,
+  error: SupabaseErrorLike,
+  context: {
+    filters?: string[];
+    operation: string;
+    selectedColumns?: string;
+    table: string;
+  },
+) {
+  const nextError = new Error(process.env.NODE_ENV === "development" ? `${message} ${error.message}`.trim() : message);
+  (nextError as Error & { cause?: unknown }).cause = {
+    code: error.code ?? null,
+    details: error.details ?? null,
+    hint: error.hint ?? null,
+    message: error.message,
+    ...context,
+  };
+
+  return nextError;
+}
+
+type SupabaseErrorLike = {
+  code?: string | null;
+  details?: string | null;
+  hint?: string | null;
+  message: string;
+};
 
 function fromSupabaseRow(row: SupabaseDocumentRow): PropertyDocument {
   const uploadedAt = row.uploaded_at;
@@ -500,6 +624,7 @@ function fromSupabaseRow(row: SupabaseDocumentRow): PropertyDocument {
     mimeType: row.mime_type ?? undefined,
     size: row.size_bytes ?? undefined,
     notes: row.notes ?? undefined,
+    visibility: normalizeVisibility(row.visibility),
   };
 }
 
@@ -528,6 +653,7 @@ function toSupabaseUpdate(input: Required<DocumentInput>) {
     related_entity_id: input.relatedEntityId || null,
     notes: input.notes?.trim() || null,
     uploaded_at: input.uploadedAt,
+    visibility: input.visibility ?? "private",
   };
 }
 
@@ -551,6 +677,7 @@ function normalizeDocumentInput(input: DocumentInput): Required<DocumentInput> {
     mimeType: input.mimeType ?? "",
     size: Number(input.size || 0),
     notes: input.notes ?? "",
+    visibility: input.visibility ?? "private",
   };
 }
 
@@ -573,7 +700,12 @@ function normalizeDocumentRecord(document: PropertyDocument): PropertyDocument {
     mimeType: document.mimeType ?? undefined,
     size: document.size ?? undefined,
     notes: document.notes ?? undefined,
+    visibility: document.visibility ?? "private",
   };
+}
+
+function normalizeVisibility(value: string | null | undefined): PropertyDocument["visibility"] {
+  return value === "tenant" ? "tenant" : "private";
 }
 
 function normalizeDocumentType(value: string | null | undefined): DocumentType {

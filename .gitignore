@@ -30,11 +30,36 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
+# browser test artifacts and local sessions
+/playwright-report/
+/test-results/
+/playwright-*-storage.json
+*.har
+
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# local credentials
+.npmrc
+**/credentials.json
+**/credentials.*.json
+**/service-account*.json
+**/token.json
+**/tokens.json
+*.key
+*.p12
+*.pfx
 
 # vercel
 .vercel
+
+# supabase local state
+/supabase/.temp/
+
+# local design references
+/dashboard-habixa-redesign.png
+/dashboard-redesign.png
 
 # typescript
 *.tsbuildinfo

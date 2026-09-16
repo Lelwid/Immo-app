@@ -2,13 +2,14 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, type ReactNode } from "react";
+import { AppShell } from "@/components/AppShell";
 import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { DEMO_AUTH_KEY, useAuth } from "@/lib/auth/AuthProvider";
 import { getDataMode } from "@/lib/data/dataMode";
 import { STORAGE_KEY } from "@/lib/local-storage";
 import { ONBOARDING_KEY, ONBOARDING_TRANSITION_KEY, shouldRequireOnboarding } from "@/lib/onboardingDecision";
 
-const publicRoutes = new Set(["/connexion", "/inscription", "/mot-de-passe-oublie", "/onboarding"]);
+const publicRoutes = new Set(["/connexion", "/inscription", "/mot-de-passe-oublie", "/onboarding", "/auth/callback"]);
 const protectedPrefixes = [
   "/dashboard",
   "/immeubles",
@@ -22,6 +23,7 @@ const protectedPrefixes = [
   "/entretien",
   "/locataires",
   "/notifications",
+  "/parametres",
 ];
 
 export function AuthRouteGate({ children }: { children: ReactNode }) {
@@ -30,9 +32,11 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
   const redirectTargetRef = useRef<string | null>(null);
   const { configured, loading, user } = useAuth();
   const isPublic = publicRoutes.has(pathname);
+  const isTenantPortal = pathname === "/locataire" || pathname.startsWith("/locataire/");
   const isOnboarding = pathname === "/onboarding";
   const isSignInRoute = pathname === "/connexion" || pathname === "/inscription";
   const isProtected = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  const isTenantProtected = isTenantPortal;
   const dataMode = typeof window !== "undefined" ? getDataMode() : "local";
   const onboardingTransitionActive =
     typeof window !== "undefined" && Boolean(window.sessionStorage.getItem(ONBOARDING_TRANSITION_KEY));
@@ -43,6 +47,7 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     Boolean(user) &&
     dataMode === "supabase" &&
     !isOnboarding &&
+    !isTenantPortal &&
     (isProtected || isSignInRoute);
   const {
     data,
@@ -70,6 +75,19 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    if (isTenantProtected && !loading && !authenticated) {
+      const query = window.location.search.replace(/^\?/, "");
+      const currentPath = query ? `${pathname}?${query}` : pathname;
+      const nextTarget = `/connexion?redirect=${encodeURIComponent(currentPath)}`;
+
+      if (redirectTargetRef.current !== nextTarget) {
+        redirectTargetRef.current = nextTarget;
+        router.replace(nextTarget);
+      }
+
+      return;
+    }
+
     debugOnboardingDecision({
       decision,
       onboardingTransitionActive,
@@ -96,24 +114,34 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
 
     redirectTargetRef.current = decision.to;
     router.replace(decision.to);
-  }, [decision, onboardingTransitionActive, pathname, portfolioData.properties.length, router, shouldCheckSupabasePortfolio]);
+  }, [authenticated, decision, isTenantProtected, loading, onboardingTransitionActive, pathname, portfolioData.properties.length, router, shouldCheckSupabasePortfolio]);
 
-  if ((decision.status === "loading" && !isPublic) || (shouldCheckSupabasePortfolio && portfolioLoading)) {
-    return (
-      <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)]">
-        <div className="mx-auto grid max-w-7xl gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+  if ((isTenantProtected && loading) || (decision.status === "loading" && !isPublic) || (shouldCheckSupabasePortfolio && portfolioLoading)) {
+    const loadingContent = (
+      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className="grid gap-3">
           <div className="h-4 w-48 animate-pulse rounded-full bg-[var(--surface-3)]" />
           <div className="h-8 w-full max-w-lg animate-pulse rounded-md bg-[var(--surface-3)]" />
           <p className="text-sm text-[var(--muted)]">Vérification de votre portefeuille...</p>
         </div>
+      </div>
+    );
+
+    if (isProtected && authenticated && !isOnboarding) {
+      return <AppShell>{loadingContent}</AppShell>;
+    }
+
+    return (
+      <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)]">
+        <div className="mx-auto max-w-7xl">{loadingContent}</div>
       </main>
     );
   }
 
   if (decision.status === "error") {
-    return (
-      <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)]">
-        <section className="mx-auto max-w-2xl rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+    const errorContent = (
+      <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+        <div className="max-w-2xl">
           <p className="text-sm font-semibold text-[color:var(--red)]">Impossible de vérifier votre portefeuille.</p>
           <p className="mt-2 text-sm text-[var(--muted)]">
             Réessayez dans quelques instants. Si le problème persiste, vérifiez la configuration Supabase.
@@ -121,7 +149,17 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
           <button className="btn-primary mt-4" onClick={() => void retryPortfolioCheck()} type="button">
             Réessayer
           </button>
-        </section>
+        </div>
+      </section>
+    );
+
+    if (isProtected && authenticated && !isOnboarding) {
+      return <AppShell>{errorContent}</AppShell>;
+    }
+
+    return (
+      <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)]">
+        <div className="mx-auto max-w-2xl">{errorContent}</div>
       </main>
     );
   }
@@ -130,7 +168,15 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     return null;
   }
 
-  return <>{children}</>;
+  if (isTenantPortal) {
+    if (!authenticated) {
+      return null;
+    }
+
+    return <>{children}</>;
+  }
+
+  return isProtected ? <AppShell>{children}</AppShell> : <>{children}</>;
 }
 
 function debugOnboardingDecision(details: Record<string, unknown>) {

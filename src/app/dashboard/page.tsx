@@ -1,1351 +1,916 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
-import { AppHeader } from "@/components/AppHeader";
-import { BuildingVisual } from "@/components/buildings/BuildingVisuals";
-import { DocumentFileActions } from "@/components/DocumentFileActions";
-import { NotesPanel } from "@/components/NotesPanel";
-import { NotificationList } from "@/components/NotificationList";
-import { TaskComposer } from "@/components/TaskComposer";
-import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
-import { createActivityRecord } from "@/lib/data/activitiesService";
-import { addActivityToStore } from "@/lib/data/activityStore";
-import { createDocumentWithFile, deleteDocument as deleteDocumentRecord } from "@/lib/data/documentsService";
-import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
-import { buildRentLedger } from "@/lib/data/rentLedgerService";
-import { createTask as createTaskRecord } from "@/lib/data/tasksService";
-import { exportPortfolioReport } from "@/lib/reportExports";
-import {
-  currency,
-  documentTypeLabel,
-  getNotificationItems,
-  getPortfolioSummary,
-  getPropertyDashboards,
-  getRecentActivities,
-  rentPaymentStatusLabel,
-} from "@/lib/mockData";
-import type { AppNote, AppTask, Health, LocalStore, NotificationItem, PropertyDashboard, PropertyDocument, TaskPriority, UnitActivity, UnitDashboard } from "@/lib/types";
-import { useLocalStore } from "@/lib/useLocalStore";
+import { useEffect, useMemo, useState } from "react";
+import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
+import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
+import { currency, getNotificationItems, getPropertyName, getRecentActivities, getUnitLabel } from "@/lib/mockData";
+import type { LocalStore, NotificationItem, PaymentTransaction, Property, UnitActivity } from "@/lib/types";
 
-const healthCopy: Record<Health, { label: string; classes: string; dot: string; glow: string }> = {
-  ok: {
-    label: "OK",
-    classes: "border-[color:var(--green)]/30 bg-[color:var(--green)]/10 text-[color:var(--green)]",
-    dot: "bg-[color:var(--green)]",
-    glow: "shadow-[color:var(--green)]/10",
-  },
-  attention: {
-    label: "Attention",
-    classes: "border-[color:var(--yellow)]/30 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
-    dot: "bg-[color:var(--yellow)]",
-    glow: "shadow-[color:var(--yellow)]/10",
-  },
-  issue: {
-    label: "Problème",
-    classes: "border-[color:var(--red)]/30 bg-[color:var(--red)]/10 text-[color:var(--red)]",
-    dot: "bg-[color:var(--red)]",
-    glow: "shadow-[color:var(--red)]/10",
-  },
+type ChartRange = 6 | 12;
+type DashboardTone = "blue" | "green" | "orange" | "red" | "purple";
+
+type DashboardMonth = {
+  key: string;
+  label: string;
+  expected: number;
+  received: number;
 };
 
-const paymentStatusLabel: Record<UnitDashboard["paymentStatus"], string> = {
-  paid: "Payé",
-  dueSoon: "Dû bientôt",
-  late: "En retard",
+type PriorityAction = {
+  id: string;
+  title: string;
+  context: string;
+  dueDate: string;
+  amountOrDate: string;
+  priority: "urgent" | "attention" | "info";
+  actionLabel: string;
+  href: string;
 };
 
-function getTenantName(unit: UnitDashboard) {
-  if (unit.tenant) {
-    return unit.tenant.fullName?.trim() || `${unit.tenant.firstName} ${unit.tenant.lastName}`.trim();
+type PropertySummary = {
+  id: string;
+  name: string;
+  unitCount: number;
+  received: number;
+  occupancyRate: number;
+  href: string;
+};
+
+type DashboardModel = {
+  month: string;
+  monthLabel: string;
+  previousMonthLabel: string;
+  kpis: {
+    receivedThisMonth: number;
+    receivedTrend: number | null;
+    remainingBalance: number;
+    overdueRentCount: number;
+    occupancyRate: number;
+    occupiedUnits: number;
+    totalUnits: number;
+    openMaintenanceCount: number;
+    urgentMaintenanceCount: number;
+  };
+  chartMonths: DashboardMonth[];
+  actions: PriorityAction[];
+  recentActivities: UnitActivity[];
+  propertySummaries: PropertySummary[];
+};
+
+const monthNames = ["Janvier", "Février", "Mars", "Avril", "Mai", "Juin", "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre"];
+const shortMonthNames = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+
+export default function DashboardPage() {
+  const { data, error, isReady, isSupabaseMode, loading, refresh } = usePortfolioSnapshot();
+  const [today, setToday] = useState("");
+  const [selectedMonth, setSelectedMonth] = useState("");
+  const [selectedPropertyId, setSelectedPropertyId] = useState("all");
+  const [chartRange, setChartRange] = useState<ChartRange>(6);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const currentDate = getTodayIsoDate();
+      setToday(currentDate);
+      setSelectedMonth(currentDate.slice(0, 7));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  const showLoader = loading || !today || !selectedMonth || !isReady;
+  const store = data;
+
+  const model = useMemo(
+    () => (store && today && selectedMonth ? buildDashboardModel(store, today, selectedMonth, selectedPropertyId, chartRange) : null),
+    [chartRange, selectedMonth, selectedPropertyId, store, today],
+  );
+
+  async function refreshDashboard() {
+    try {
+      await refresh();
+    } catch (refreshError) {
+      console.error("Impossible de rafraîchir les données du tableau de bord.", refreshError);
+    }
   }
 
-  return unit.tenantId ? "Locataire introuvable" : "Vacant";
+  if (showLoader) {
+    return <DashboardSkeleton />;
+  }
+
+  if (error && isSupabaseMode) {
+    return (
+      <section className="rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-6">
+        <h1 className="text-xl font-semibold">Impossible de charger les données du portefeuille.</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]">Réessayez pour recharger les données Supabase.</p>
+        <button className="btn-primary mt-4" onClick={() => void refreshDashboard()} type="button">
+          Réessayer
+        </button>
+      </section>
+    );
+  }
+
+  if (!store || !model || store.properties.length === 0) {
+    return (
+      <section className="rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-6">
+        <h1 className="text-xl font-semibold">Aucune donnée de portefeuille disponible.</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Ajoutez un immeuble ou utilisez les données démo pour remplir le tableau de bord.
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+        <DashboardTitleBar
+          month={selectedMonth}
+          monthLabel={model.monthLabel}
+          onMonthChange={setSelectedMonth}
+          onRefresh={refreshDashboard}
+          onPropertyChange={setSelectedPropertyId}
+          properties={store.properties}
+          selectedPropertyId={selectedPropertyId}
+        />
+
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            icon="$"
+            title="Revenus reçus"
+            subtitle="Ce mois-ci"
+            value={currency.format(model.kpis.receivedThisMonth)}
+            helper={formatTrend(model.kpis.receivedTrend, model.previousMonthLabel)}
+            tone="blue"
+          />
+          <KpiCard
+            icon="▭"
+            title="À recevoir"
+            subtitle="Solde à percevoir"
+            value={currency.format(model.kpis.remainingBalance)}
+            helper={model.kpis.overdueRentCount > 0 ? `${model.kpis.overdueRentCount} loyer${model.kpis.overdueRentCount > 1 ? "s" : ""} en retard` : "Aucun loyer en retard"}
+            tone={model.kpis.overdueRentCount > 0 ? "orange" : "green"}
+          />
+          <KpiCard
+            icon="▥"
+            progress={model.kpis.occupancyRate}
+            title="Occupation"
+            subtitle="Taux d’occupation"
+            value={`${model.kpis.occupancyRate} %`}
+            helper={`${model.kpis.occupiedUnits} / ${model.kpis.totalUnits} logements occupés`}
+            tone="purple"
+          />
+          <KpiCard
+            icon="⌁"
+            title="Entretien"
+            subtitle="Demandes ouvertes"
+            value={`${model.kpis.openMaintenanceCount}`}
+            helper={
+              model.kpis.urgentMaintenanceCount > 0
+                ? `${model.kpis.urgentMaintenanceCount} urgente${model.kpis.urgentMaintenanceCount > 1 ? "s" : ""}`
+                : "Aucune urgence"
+            }
+            tone={model.kpis.urgentMaintenanceCount > 0 ? "red" : "orange"}
+          />
+        </section>
+
+        <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,0.82fr)]">
+          <RevenueChartCard months={model.chartMonths} range={chartRange} onRangeChange={setChartRange} />
+          <PriorityActionsCard actions={model.actions} />
+        </section>
+
+        <section className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,0.82fr)]">
+          <RecentActivityTable activities={model.recentActivities} store={store} />
+          <PropertiesCard properties={model.propertySummaries} />
+        </section>
+    </div>
+  );
+}
+
+function DashboardTitleBar({
+  month,
+  monthLabel,
+  onMonthChange,
+  onPropertyChange,
+  onRefresh,
+  properties,
+  selectedPropertyId,
+}: {
+  month: string;
+  monthLabel: string;
+  onMonthChange: (month: string) => void;
+  onPropertyChange: (propertyId: string) => void;
+  onRefresh: () => Promise<void>;
+  properties: Property[];
+  selectedPropertyId: string;
+}) {
+  return (
+    <header className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+      <div className="min-w-0">
+        <h1 className="text-3xl font-bold tracking-normal text-[var(--foreground)]">Tableau de bord</h1>
+        <p className="mt-1 text-sm text-[var(--muted)]">Vue d’ensemble de votre portefeuille immobilier</p>
+      </div>
+
+      <div className="grid gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end">
+        <MonthControl month={month} monthLabel={monthLabel} onChange={onMonthChange} />
+        <label className="flex min-w-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm font-semibold">
+          <span className="text-[var(--muted)]">⌂</span>
+          <select
+            className="min-w-0 bg-transparent text-[var(--foreground)] outline-none"
+            onChange={(event) => onPropertyChange(event.target.value)}
+            value={selectedPropertyId}
+          >
+            <option value="all">Tous les immeubles</option>
+            {properties.map((property) => (
+              <option key={property.id} value={property.id}>
+                {property.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          aria-label="Actualiser le tableau de bord"
+          className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-lg font-semibold transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
+          onClick={() => void onRefresh()}
+          type="button"
+        >
+          ↻
+        </button>
+      </div>
+    </header>
+  );
+}
+
+function MonthControl({ month, monthLabel, onChange }: { month: string; monthLabel: string; onChange: (month: string) => void }) {
+  return (
+    <div className="flex items-center gap-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-1">
+      <button className="rounded-md px-2 py-1.5 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]" onClick={() => onChange(addMonthsToMonth(month, -1))} type="button">
+        ‹
+      </button>
+      <button className="min-w-32 rounded-md px-3 py-1.5 text-sm font-semibold text-[var(--foreground)]" onClick={() => onChange(getTodayIsoDate().slice(0, 7))} type="button">
+        {monthLabel}
+      </button>
+      <button className="rounded-md px-2 py-1.5 text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]" onClick={() => onChange(addMonthsToMonth(month, 1))} type="button">
+        ›
+      </button>
+    </div>
+  );
+}
+
+function KpiCard({
+  helper,
+  icon,
+  progress,
+  subtitle,
+  title,
+  tone,
+  value,
+}: {
+  helper: string;
+  icon: string;
+  progress?: number;
+  subtitle: string;
+  title: string;
+  tone: DashboardTone;
+  value: string;
+}) {
+  const classes = getToneClasses(tone);
+
+  return (
+    <article className={`min-w-0 rounded-[18px] border bg-[var(--surface)] p-5 ${classes.card}`}>
+      <div className="flex items-start gap-4">
+        <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xl font-bold ${classes.icon}`}>{icon}</span>
+        <div className="min-w-0">
+          <h2 className="truncate text-sm font-semibold text-[var(--foreground)]">{title}</h2>
+          <p className="mt-1 truncate text-sm text-[var(--muted)]">{subtitle}</p>
+        </div>
+      </div>
+      <p className="mt-5 truncate text-3xl font-bold tracking-normal text-[var(--foreground)]">{value}</p>
+      <p className={`mt-3 line-clamp-1 text-sm font-semibold ${classes.helper}`}>{helper}</p>
+      {typeof progress === "number" ? (
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--surface-3)]">
+          <div className={`h-full rounded-full ${classes.progress}`} style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function RevenueChartCard({
+  months,
+  onRangeChange,
+  range,
+}: {
+  months: DashboardMonth[];
+  onRangeChange: (range: ChartRange) => void;
+  range: ChartRange;
+}) {
+  const maxAmount = Math.max(1, ...months.flatMap((item) => [item.expected, item.received]));
+  const yAxis = [8000, 6000, 4000, 2000, 0].filter((value) => value <= Math.max(8000, Math.ceil(maxAmount / 1000) * 1000));
+
+  return (
+    <section className="min-w-0 rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-bold">Loyers attendus vs reçus</h2>
+          <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-[var(--muted)]">
+            <LegendDot className="bg-[color:var(--accent)]" label="Loyers attendus" />
+            <LegendDot className="bg-[color:var(--green)]" label="Loyers reçus" />
+          </div>
+        </div>
+        <select
+          className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm font-semibold outline-none"
+          onChange={(event) => onRangeChange(Number(event.target.value) as ChartRange)}
+          value={range}
+        >
+          <option value={6}>6 derniers mois</option>
+          <option value={12}>12 derniers mois</option>
+        </select>
+      </div>
+
+      <div className="mt-5 grid min-h-[295px] grid-cols-[46px_minmax(0,1fr)] gap-3">
+        <div className="flex flex-col justify-between pb-8 pt-3 text-xs text-[var(--muted)]">
+          {yAxis.map((value) => (
+            <span key={value}>{formatCompactAmount(value)}</span>
+          ))}
+        </div>
+        <div className="relative min-w-0 overflow-hidden rounded-xl">
+          <div className="absolute inset-x-0 top-3 grid h-[220px] grid-rows-4">
+            <span className="border-t border-[var(--border)]/75" />
+            <span className="border-t border-[var(--border)]/75" />
+            <span className="border-t border-[var(--border)]/75" />
+            <span className="border-t border-[var(--border)]/75" />
+          </div>
+          <div className="relative flex h-[260px] min-w-0 items-end gap-3 px-1 pb-8 pt-3">
+            {months.map((month) => (
+              <div key={month.key} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                <div className="flex h-[220px] w-full max-w-[72px] items-end justify-center gap-2">
+                  <span
+                    className="w-full rounded-t-md bg-[color:var(--accent)] shadow-[0_0_20px_rgba(37,99,235,0.18)]"
+                    title={`Attendus: ${currency.format(month.expected)}`}
+                    style={{ height: `${getBarHeight(month.expected, maxAmount)}%` }}
+                  />
+                  <span
+                    className="w-full rounded-t-md bg-[color:var(--green)] shadow-[0_0_20px_rgba(34,197,94,0.12)]"
+                    title={`Reçus: ${currency.format(month.received)}`}
+                    style={{ height: `${getBarHeight(month.received, maxAmount)}%` }}
+                  />
+                </div>
+                <span className="w-full truncate text-center text-xs text-[var(--muted)]">{month.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PriorityActionsCard({ actions }: { actions: PriorityAction[] }) {
+  return (
+    <section className="min-w-0 rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] pb-4">
+        <h2 className="text-lg font-bold">À traiter</h2>
+        <Link className="text-sm font-semibold text-[color:var(--accent)] hover:underline" href="/notifications">
+          Voir tout ({actions.length})
+        </Link>
+      </div>
+
+      <div className="divide-y divide-[var(--border)]">
+        {actions.length === 0 ? (
+          <div className="py-10 text-center">
+            <p className="font-semibold text-[color:var(--green)]">Tout est à jour</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Aucune action urgente pour le moment.</p>
+          </div>
+        ) : (
+          actions.map((action) => <PriorityActionRow key={action.id} action={action} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PriorityActionRow({ action }: { action: PriorityAction }) {
+  const tone = action.priority === "urgent" ? "red" : action.priority === "attention" ? "orange" : "blue";
+  const classes = getToneClasses(tone);
+
+  return (
+    <article className="grid min-w-0 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-3 py-3">
+      <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold ${classes.icon}`}>{getActionIcon(action.title)}</span>
+      <div className="min-w-0">
+        <h3 className="truncate text-sm font-bold text-[var(--foreground)]">{action.title}</h3>
+        <p className="mt-0.5 truncate text-xs text-[var(--muted)]">{action.context}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <span className={`hidden min-w-16 text-right text-sm font-bold sm:block ${classes.helper}`}>{action.amountOrDate}</span>
+        <Link className="rounded-lg border border-[color:var(--accent)]/45 px-4 py-2 text-sm font-semibold text-[var(--foreground)] transition hover:bg-[color:var(--accent)]/15" href={action.href}>
+          {action.actionLabel}
+        </Link>
+      </div>
+    </article>
+  );
+}
+
+function RecentActivityTable({ activities, store }: { activities: UnitActivity[]; store: LocalStore }) {
+  return (
+    <section className="min-w-0 rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-bold">Activité récente</h2>
+        <Link className="text-sm font-semibold text-[color:var(--accent)] hover:underline" href="/activites">
+          Voir toute l’activité
+        </Link>
+      </div>
+
+      <div className="mt-5 hidden overflow-hidden md:block">
+        <table className="w-full table-fixed border-collapse text-sm">
+          <thead className="text-left text-xs text-[var(--muted)]">
+            <tr>
+              <th className="w-[25%] px-3 py-2 font-medium">Événement</th>
+              <th className="w-[25%] px-3 py-2 font-medium">Immeuble / Logement</th>
+              <th className="w-[14%] px-3 py-2 font-medium">Date</th>
+              <th className="w-[16%] px-3 py-2 font-medium">Personne</th>
+              <th className="w-[10%] px-3 py-2 text-right font-medium">Montant</th>
+              <th className="w-[10%] px-3 py-2 font-medium">Statut</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border)]">
+            {activities.map((activity) => (
+              <ActivityRow key={activity.id} activity={activity} store={store} />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:hidden">
+        {activities.map((activity) => (
+          <Link key={activity.id} href={getActivityHref(activity)} className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4">
+            <p className="font-semibold">{activity.title}</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">{getActivityContext(activity, store)}</p>
+            <div className="mt-3 flex items-center justify-between gap-3 text-xs font-semibold text-[var(--muted)]">
+              <span>{formatDate(activity.date)}</span>
+              <span>{getActivityStatusLabel(activity)}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      {activities.length === 0 ? <p className="mt-5 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm text-[var(--muted)]">Aucune activité récente.</p> : null}
+    </section>
+  );
+}
+
+function ActivityRow({ activity, store }: { activity: UnitActivity; store: LocalStore }) {
+  return (
+    <tr className="transition hover:bg-white/[0.03]">
+      <td className="min-w-0 px-3 py-3">
+        <Link href={getActivityHref(activity)} className="group flex min-w-0 items-center gap-3">
+          <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${getActivityIconClass(activity.type)}`}>
+            {activity.type.slice(0, 1).toUpperCase()}
+          </span>
+          <span className="truncate font-semibold transition group-hover:text-[color:var(--accent)]">{activity.title}</span>
+        </Link>
+      </td>
+      <td className="px-3 py-3 text-[var(--muted)]">
+        <span className="line-clamp-1">{getActivityContext(activity, store)}</span>
+      </td>
+      <td className="px-3 py-3 text-[var(--muted)]">{formatDate(activity.date)}</td>
+      <td className="px-3 py-3 text-[var(--muted)]">{getActivityPerson(activity, store)}</td>
+      <td className="px-3 py-3 text-right font-semibold">{getActivityAmount(activity)}</td>
+      <td className="px-3 py-3">
+        <span className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">
+          {getActivityStatusLabel(activity)}
+        </span>
+      </td>
+    </tr>
+  );
+}
+
+function PropertiesCard({ properties }: { properties: PropertySummary[] }) {
+  return (
+    <section className="min-w-0 rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-bold">Mes immeubles</h2>
+        <Link className="text-sm font-semibold text-[color:var(--accent)] hover:underline" href="/immeubles">
+          Voir tous ›
+        </Link>
+      </div>
+
+      <div className="mt-5 divide-y divide-[var(--border)]">
+        {properties.length === 0 ? (
+          <p className="rounded-xl border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm text-[var(--muted)]">Aucun immeuble à afficher.</p>
+        ) : (
+          properties.map((property) => <PropertySummaryRow key={property.id} property={property} />)
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PropertySummaryRow({ property }: { property: PropertySummary }) {
+  const progressBackground = `conic-gradient(var(--green) 0 ${property.occupancyRate}%, var(--surface-3) ${property.occupancyRate}% 100%)`;
+
+  return (
+    <Link className="grid grid-cols-[56px_minmax(0,1fr)_auto_auto] items-center gap-3 py-3 transition hover:text-[color:var(--accent)]" href={property.href}>
+      <span className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-2)] text-xs font-bold text-[color:var(--accent)]">
+        {property.name.slice(0, 2).toUpperCase()}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate font-bold text-[var(--foreground)]">{property.name}</span>
+        <span className="block text-sm text-[var(--muted)]">{property.unitCount} logement{property.unitCount > 1 ? "s" : ""}</span>
+      </span>
+      <span className="hidden text-right sm:block">
+        <span className="block font-bold text-[var(--foreground)]">{currency.format(property.received)}</span>
+        <span className="block text-xs text-[var(--muted)]">Revenus du mois</span>
+      </span>
+      <span className="flex items-center gap-3">
+        <span className="relative hidden h-12 w-12 rounded-full sm:block" style={{ background: progressBackground }}>
+          <span className="absolute inset-1.5 flex items-center justify-center rounded-full bg-[var(--surface)] text-[10px] font-bold">{property.occupancyRate}%</span>
+        </span>
+        <span className="text-xl text-[var(--muted)]">›</span>
+      </span>
+    </Link>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="h-20 rounded-[18px] border border-[var(--border)] bg-[var(--surface)]" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="h-40 rounded-[18px] border border-[var(--border)] bg-[var(--surface)]" />
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.18fr)_minmax(360px,0.82fr)]">
+        <div className="h-[335px] rounded-[18px] border border-[var(--border)] bg-[var(--surface)]" />
+        <div className="h-[335px] rounded-[18px] border border-[var(--border)] bg-[var(--surface)]" />
+      </div>
+    </div>
+  );
+}
+
+function LegendDot({ className, label }: { className: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={`h-2.5 w-2.5 rounded-full ${className}`} />
+      {label}
+    </span>
+  );
+}
+
+function buildDashboardModel(store: LocalStore, today: string, selectedMonth: string, selectedPropertyId: string, chartRange: ChartRange): DashboardModel {
+  const scopedStore = getScopedStore(store, selectedPropertyId);
+  const ledger = buildRentLedger(store, today);
+  const scopedRows = ledger.rows.filter((row) => isInScope(row.propertyId, selectedPropertyId));
+  const scopedTransactions = ledger.transactions.filter((transaction) => isInScope(transaction.propertyId, selectedPropertyId));
+  const currentRows = scopedRows.filter((row) => row.dueDate.slice(0, 7) === selectedMonth);
+  const previousMonth = addMonthsToMonth(selectedMonth, -1);
+  const receivedThisMonth = sumTransactionsByMonth(scopedTransactions, selectedMonth);
+  const receivedPreviousMonth = sumTransactionsByMonth(scopedTransactions, previousMonth);
+  const receivedTrend = receivedPreviousMonth > 0 ? ((receivedThisMonth - receivedPreviousMonth) / receivedPreviousMonth) * 100 : null;
+  const openMaintenance = scopedStore.maintenanceTickets.filter((ticket) => ticket.status !== "resolved");
+  const urgentMaintenance = openMaintenance.filter((ticket) => ticket.priority === "urgent" || ticket.priority === "high");
+  const occupancy = getOccupancyMetrics(scopedStore, scopedRows, today);
+
+  return {
+    actions: buildPriorityActions(scopedStore, scopedRows, getNotificationItems(scopedStore), today),
+    chartMonths: buildChartMonths(scopedRows, scopedTransactions, selectedMonth, chartRange),
+    kpis: {
+      occupiedUnits: occupancy.occupied,
+      occupancyRate: occupancy.rate,
+      openMaintenanceCount: openMaintenance.length,
+      overdueRentCount: scopedRows.filter((row) => row.balance > 0 && row.dueDate < today).length,
+      remainingBalance: currentRows.reduce((sum, row) => sum + Math.max(0, row.balance), 0),
+      receivedThisMonth,
+      receivedTrend,
+      totalUnits: scopedStore.units.length,
+      urgentMaintenanceCount: urgentMaintenance.length,
+    },
+    month: selectedMonth,
+    monthLabel: formatMonthLong(selectedMonth),
+    previousMonthLabel: formatMonthLong(previousMonth),
+    propertySummaries: buildPropertySummaries(store, ledger.rows, ledger.transactions, selectedMonth, selectedPropertyId),
+    recentActivities: getRecentActivities(scopedStore, 5),
+  };
+}
+
+function getScopedStore(store: LocalStore, selectedPropertyId: string): LocalStore {
+  if (selectedPropertyId === "all") {
+    return store;
+  }
+
+  const unitIds = new Set(store.units.filter((unit) => unit.propertyId === selectedPropertyId).map((unit) => unit.id));
+  const tenantIds = new Set(store.leases.filter((lease) => lease.propertyId === selectedPropertyId).map((lease) => lease.tenantId));
+
+  return {
+    ...store,
+    activities: store.activities.filter((activity) => activity.propertyId === selectedPropertyId || (activity.unitId ? unitIds.has(activity.unitId) : false)),
+    documents: store.documents.filter((document) => document.propertyId === selectedPropertyId),
+    leases: store.leases.filter((lease) => lease.propertyId === selectedPropertyId),
+    maintenanceTickets: store.maintenanceTickets.filter((ticket) => ticket.propertyId === selectedPropertyId),
+    notes: store.notes.filter((note) => note.propertyId === selectedPropertyId),
+    paymentAllocations: store.paymentAllocations,
+    paymentTransactions: store.paymentTransactions.filter((transaction) => transaction.propertyId === selectedPropertyId),
+    payments: store.payments.filter((payment) => payment.propertyId === selectedPropertyId),
+    properties: store.properties.filter((property) => property.id === selectedPropertyId),
+    rentCharges: store.rentCharges.filter((charge) => charge.propertyId === selectedPropertyId),
+    tasks: store.tasks.filter((task) => !task.propertyId || task.propertyId === selectedPropertyId),
+    tenants: store.tenants.filter((tenant) => tenantIds.has(tenant.id)),
+    units: store.units.filter((unit) => unit.propertyId === selectedPropertyId),
+  };
+}
+
+function buildChartMonths(rows: RentChargeRow[], transactions: PaymentTransaction[], selectedMonth: string, range: ChartRange): DashboardMonth[] {
+  return getMonthRange(selectedMonth, range).map((month) => ({
+    expected: rows.filter((row) => row.dueDate.slice(0, 7) === month).reduce((sum, row) => sum + row.amountDue, 0),
+    key: month,
+    label: formatMonthShort(month),
+    received: sumTransactionsByMonth(transactions, month),
+  }));
+}
+
+function buildPropertySummaries(store: LocalStore, rows: RentChargeRow[], transactions: PaymentTransaction[], selectedMonth: string, selectedPropertyId: string): PropertySummary[] {
+  const properties = selectedPropertyId === "all" ? store.properties : store.properties.filter((property) => property.id === selectedPropertyId);
+
+  return properties.slice(0, 4).map((property) => {
+    const units = store.units.filter((unit) => unit.propertyId === property.id);
+    const activeUnitIds = new Set(store.leases.filter((lease) => lease.propertyId === property.id && lease.status === "active").map((lease) => lease.unitId));
+    return {
+      href: `/immeubles/${property.id}`,
+      id: property.id,
+      name: property.name,
+      occupancyRate: units.length > 0 ? Math.round((activeUnitIds.size / units.length) * 100) : 0,
+      received: transactions.filter((transaction) => transaction.propertyId === property.id && transaction.receivedAt.slice(0, 7) === selectedMonth).reduce((sum, transaction) => sum + transaction.amountReceived, 0),
+      unitCount: units.length,
+    };
+  });
+}
+
+function getOccupancyMetrics(store: LocalStore, rows: RentChargeRow[], today: string) {
+  const activeLeaseUnitIds = new Set(store.leases.filter((lease) => lease.status === "active").map((lease) => lease.unitId));
+  const attentionUnitIds = new Set(rows.filter((row) => row.balance > 0 && row.dueDate < today).map((row) => row.unitId));
+  for (const ticket of store.maintenanceTickets.filter((ticket) => ticket.status !== "resolved" && (ticket.priority === "urgent" || ticket.priority === "high"))) {
+    attentionUnitIds.add(ticket.unitId);
+  }
+
+  const occupied = store.units.filter((unit) => activeLeaseUnitIds.has(unit.id)).length;
+  const attention = store.units.filter((unit) => activeLeaseUnitIds.has(unit.id) && attentionUnitIds.has(unit.id)).length;
+  const total = store.units.length;
+
+  return {
+    attention,
+    occupied,
+    rate: total > 0 ? Math.round((occupied / total) * 100) : 0,
+    total,
+  };
+}
+
+function buildPriorityActions(store: LocalStore, rows: RentChargeRow[], notifications: NotificationItem[], today: string): PriorityAction[] {
+  const notificationActions = notifications
+    .filter((notification) => notification.priority === "urgent" || notification.priority === "attention")
+    .map((notification) => ({
+      actionLabel: getNotificationActionLabel(notification),
+      amountOrDate: getNotificationAmountOrDate(notification),
+      context: [notification.property, notification.unit, notification.tenant].filter(Boolean).join(" · "),
+      dueDate: notification.relatedDeadline ?? notification.sortDate.slice(0, 10),
+      href: notification.href,
+      id: notification.id,
+      priority: notification.priority,
+      title: normalizeNotificationTitle(notification.title),
+    }));
+
+  const overdueTasks = store.tasks
+    .filter((task) => !task.completed && task.dueDate <= today)
+    .map((task) => ({
+      actionLabel: "Terminer",
+      amountOrDate: formatDateShort(task.dueDate),
+      context: getTaskContext(task, store),
+      dueDate: task.dueDate,
+      href: "/taches",
+      id: `task-${task.id}`,
+      priority: "attention" as const,
+      title: "Tâche en retard",
+    }));
+
+  const anomalousRows = rows
+    .filter((row) => row.hasAnomaly)
+    .map((row) => ({
+      actionLabel: "Vérifier",
+      amountOrDate: currency.format(row.balance),
+      context: `${getPropertyName(row.propertyId, store)} · ${getUnitLabel(row.unitId, store)}`,
+      dueDate: row.dueDate,
+      href: "/paiements",
+      id: `charge-anomaly-${row.id}`,
+      priority: "attention" as const,
+      title: "Loyer à vérifier",
+    }));
+
+  return dedupePriorityActions([...notificationActions, ...overdueTasks, ...anomalousRows])
+    .sort((a, b) => priorityRank(a.priority) - priorityRank(b.priority) || a.dueDate.localeCompare(b.dueDate))
+    .slice(0, 5);
+}
+
+function dedupePriorityActions(actions: PriorityAction[]) {
+  const actionMap = new Map<string, PriorityAction>();
+  for (const action of actions) {
+    const key = `${action.title}-${action.context}`;
+    const existing = actionMap.get(key);
+    if (!existing || priorityRank(action.priority) < priorityRank(existing.priority) || action.dueDate < existing.dueDate) {
+      actionMap.set(key, action);
+    }
+  }
+  return [...actionMap.values()];
+}
+
+function getNotificationActionLabel(notification: NotificationItem) {
+  const title = notification.title.toLowerCase();
+  if (title.includes("paiement")) return title.includes("partiel") ? "Compléter" : "Encaisser";
+  if (title.includes("copie") || title.includes("document")) return "Ajouter";
+  if (title.includes("bail")) return "Voir le bail";
+  if (title.includes("entretien")) return "Traiter";
+  return "Voir";
+}
+
+function getNotificationAmountOrDate(notification: NotificationItem) {
+  if (notification.title.toLowerCase().includes("paiement")) {
+    return notification.urgencyReason.match(/d[ds.,]*s?$/)?.[0] ?? formatDateShort(notification.relatedDeadline ?? notification.sortDate);
+  }
+  return formatDateShort(notification.relatedDeadline ?? notification.sortDate);
+}
+
+function normalizeNotificationTitle(title: string) {
+  const normalized = title.toLowerCase();
+  if (normalized.includes("paiement")) return "Loyer en retard";
+  if (normalized.includes("copie")) return "Document manquant";
+  if (normalized.includes("bail")) return "Bail expire bientôt";
+  return title;
+}
+
+function getTaskContext(task: { propertyId?: string; unitId?: string; tenantId?: string | null }, store: LocalStore) {
+  const property = task.propertyId ? getPropertyName(task.propertyId, store) : "Portefeuille";
+  const unit = task.unitId ? getUnitLabel(task.unitId, store) : null;
+  const tenant = task.tenantId ? getTenantName(task.tenantId, store) : null;
+  return [property, unit, tenant].filter(Boolean).join(" · ");
+}
+
+function getTenantName(tenantId: string | null | undefined, store: LocalStore) {
+  const tenant = tenantId ? store.tenants.find((candidate) => candidate.id === tenantId) : null;
+  return tenant ? tenant.fullName?.trim() || `${tenant.firstName} ${tenant.lastName}`.trim() : null;
+}
+
+function getActivityContext(activity: UnitActivity, store: LocalStore) {
+  const propertyId = activity.propertyId || (activity.unitId ? store.units.find((unit) => unit.id === activity.unitId)?.propertyId : "");
+  const property = propertyId ? getPropertyName(propertyId, store) : "Portefeuille";
+  const unit = activity.unitId ? getUnitLabel(activity.unitId, store) : null;
+  return [property, unit].filter(Boolean).join(" · ");
+}
+
+function getActivityPerson(activity: UnitActivity, store: LocalStore) {
+  return getTenantName(activity.tenantId, store) ?? "—";
+}
+
+function getActivityAmount(activity: UnitActivity) {
+  if (activity.type !== "paiement") return "—";
+  const match = activity.description.match(/d[ds.,]*s?$/);
+  return match?.[0] ?? "—";
+}
+
+function getActivityStatusLabel(activity: UnitActivity) {
+  const labels: Record<UnitActivity["type"], string> = {
+    bail: "Actif",
+    document: "Enregistré",
+    entretien: "Ouverte",
+    immeuble: "Actif",
+    locataire: "Actif",
+    note: "Note",
+    paiement: "Reçu",
+    tache: "Terminée",
+  };
+  return labels[activity.type];
+}
+
+function getActivityHref(activity: UnitActivity) {
+  if (activity.type === "paiement") return "/paiements";
+  if (activity.type === "bail") return "/baux";
+  if (activity.type === "document") return "/documents";
+  if (activity.type === "entretien") return "/entretien";
+  if (activity.type === "tache") return "/taches";
+  if (activity.tenantId) return  `/locataires?tenant=${activity.tenantId}`;
+  if (activity.propertyId) return  `/immeubles/${activity.propertyId}`;
+  return "/activites";
+}
+
+function getToneClasses(tone: DashboardTone) {
+  const classes = {
+    blue: {
+      card: "border-[color:var(--accent)]/18",
+      helper: "text-[color:var(--green)]",
+      icon: "bg-[color:var(--accent)]/18 text-[color:var(--accent)]",
+      progress: "bg-[color:var(--accent)]",
+    },
+    green: {
+      card: "border-[color:var(--green)]/18",
+      helper: "text-[color:var(--green)]",
+      icon: "bg-[color:var(--green)]/16 text-[color:var(--green)]",
+      progress: "bg-[color:var(--green)]",
+    },
+    orange: {
+      card: "border-[color:var(--yellow)]/20",
+      helper: "text-[color:var(--yellow)]",
+      icon: "bg-[color:var(--yellow)]/16 text-[color:var(--yellow)]",
+      progress: "bg-[color:var(--yellow)]",
+    },
+    purple: {
+      card: "border-[#8b5cf6]/22",
+      helper: "text-[var(--muted)]",
+      icon: "bg-[#8b5cf6]/18 text-[#a78bfa]",
+      progress: "bg-[#8b5cf6]",
+    },
+    red: {
+      card: "border-[color:var(--red)]/30 bg-[color:var(--red)]/5",
+      helper: "text-[color:var(--red)]",
+      icon: "bg-[color:var(--red)]/16 text-[color:var(--red)]",
+      progress: "bg-[color:var(--red)]",
+    },
+  };
+  return classes[tone];
+}
+
+function getActivityIconClass(type: UnitActivity["type"]) {
+  if (type === "paiement") return "bg-[color:var(--green)]/14 text-[color:var(--green)]";
+  if (type === "bail") return "bg-[#8b5cf6]/18 text-[#a78bfa]";
+  if (type === "entretien") return "bg-[color:var(--yellow)]/14 text-[color:var(--yellow)]";
+  if (type === "document") return "bg-[color:var(--accent)]/14 text-[color:var(--accent)]";
+  return "bg-[var(--surface-2)] text-[var(--muted)]";
+}
+
+function getActionIcon(title: string) {
+  const normalized = title.toLowerCase();
+  if (normalized.includes("loyer") || normalized.includes("paiement")) return "$";
+  if (normalized.includes("bail")) return "□";
+  if (normalized.includes("document")) return "▱";
+  if (normalized.includes("entretien")) return "⌁";
+  return "✓";
+}
+
+function formatTrend(trend: number | null, previousMonthLabel: string) {
+  if (trend === null) return `Comparaison indisponible`;
+  const sign = trend >= 0 ? "+" : "";
+  return `${sign}${trend.toFixed(1).replace(".", ",")} % vs ${previousMonthLabel.toLowerCase()}`;
+}
+
+function sumTransactionsByMonth(transactions: PaymentTransaction[], month: string) {
+  return transactions.filter((transaction) => transaction.receivedAt.slice(0, 7) === month).reduce((sum, transaction) => sum + transaction.amountReceived, 0);
+}
+
+function isInScope(propertyId: string, selectedPropertyId: string) {
+  return selectedPropertyId === "all" || propertyId === selectedPropertyId;
+}
+
+function priorityRank(priority: PriorityAction["priority"]) {
+  return priority === "urgent" ? 0 : priority === "attention" ? 1 : 2;
+}
+
+function getMonthRange(currentMonth: string, range: ChartRange) {
+  return Array.from({ length: range }, (_, index) => addMonthsToMonth(currentMonth, index - range + 1));
+}
+
+function addMonthsToMonth(monthKey: string, offset: number) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const nextDate = new Date(year, month - 1 + offset, 1);
+  return `${nextDate.getFullYear()}-${`${nextDate.getMonth() + 1}`.padStart(2, "0")}`;
+}
+
+function formatMonthShort(monthKey: string) {
+  const month = Number(monthKey.slice(5, 7));
+  return shortMonthNames[month - 1] ?? monthKey;
+}
+
+function formatMonthLong(monthKey: string) {
+  const month = Number(monthKey.slice(5, 7));
+  return `${monthNames[month - 1] ?? monthKey} ${monthKey.slice(0, 4)}`;
 }
 
 function formatDate(date: string) {
-  return new Intl.DateTimeFormat("fr-CA", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(new Date(`${date}T12:00:00`));
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("fr-CA", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${date.slice(0, 10)}T12:00:00`));
 }
 
-function getInitialDashboardRoute() {
-  if (typeof window === "undefined") {
-    return { propertyId: null, unitId: null, tab: null };
-  }
-
-  const params = new URLSearchParams(window.location.search);
-
-  return {
-    propertyId: params.get("property"),
-    unitId: params.get("unit"),
-    tab: params.get("tab"),
-  };
+function formatDateShort(date: string) {
+  if (!date) return "—";
+  return new Intl.DateTimeFormat("fr-CA", { day: "numeric", month: "short" }).format(new Date(`${date.slice(0, 10)}T12:00:00`));
 }
 
-function getCopilotSummary(store: LocalStore): CopilotSummary {
-  const ledgerRows = buildRentLedger(store).rows;
-  const latePayments = ledgerRows.filter((payment) => payment.balance > 0 && payment.dueDate < getTodayIsoDate());
-  const expiringLeases = store.leases.filter((lease) => lease.status === "active" && isLeaseExpiringSoon(lease.endDate));
-  const urgentTickets = store.maintenanceTickets.filter(
-    (ticket) => ticket.status !== "resolved" && (ticket.priority === "urgent" || ticket.priority === "high"),
-  );
-  const recommendations: CopilotRecommendation[] = [];
+function formatCompactAmount(amount: number) {
+  if (amount === 0) return "0";
+  if (amount >= 1000) return `${Math.round(amount / 1000)}K`;
+  return `${amount}`;
+}
 
-  if (latePayments.length > 0) {
-    const firstLatePayment = latePayments[0];
-    const tenantName = getTenantFullName(firstLatePayment.tenantId, store) ?? getUnitLabel(firstLatePayment.unitId, store);
-    recommendations.push({
-      title: `Envoyer un rappel de paiement à ${tenantName}`,
-      detail: `${getUnitLabel(firstLatePayment.unitId, store)} demande un suivi de loyer ce mois-ci.`,
-      href: `/dashboard?property=${firstLatePayment.propertyId}&unit=${firstLatePayment.unitId}&tab=paiements`,
-      priority: "issue",
-    });
-  }
-
-  if (expiringLeases.length > 0) {
-    const firstLease = expiringLeases[0];
-    recommendations.push({
-      title: "Préparer les avis de renouvellement à venir",
-      detail: `${getUnitLabel(firstLease.unitId, store)} arrive à échéance le ${formatDate(firstLease.endDate)}.`,
-      href: `/dashboard?property=${firstLease.propertyId}&unit=${firstLease.unitId}&tab=bail`,
-      priority: "attention",
-    });
-  }
-
-  if (urgentTickets.length > 0) {
-    const firstTicket = urgentTickets[0];
-    recommendations.push({
-      title: `Planifier l'intervention pour ${firstTicket.title.toLowerCase()}`,
-      detail: `${getUnitLabel(firstTicket.unitId, store)} a une demande d'entretien à prioriser.`,
-      href: "/entretien",
-      priority: "issue",
-    });
-  }
-
-  if (recommendations.length < 3) {
-    recommendations.push({
-      title: "Revoir les prochaines échéances du portefeuille",
-      detail: "Valider les baux, documents et paiements à surveiller avant la fin du mois.",
-      href: "/calendrier",
-      priority: "attention",
-    });
-  }
-
-  if (recommendations.length < 3) {
-    recommendations.push({
-      title: "Consulter les demandes d'entretien ouvertes",
-      detail: "Confirmer qu'aucune demande non urgente ne bloque un logement.",
-      href: "/entretien",
-      priority: "ok",
-    });
-  }
-
-  const summaryText =
-    latePayments.length === 0 && expiringLeases.length === 0 && urgentTickets.length === 0
-      ? "Votre portefeuille est globalement stable. Les paiements, les baux et les demandes d'entretien ne présentent pas d'urgence majeure."
-      : `Votre portefeuille reste maîtrisé, mais ${latePayments.length} paiement${latePayments.length > 1 ? "s" : ""} en retard, ${expiringLeases.length} bail${expiringLeases.length > 1 ? "s" : ""} à surveiller et ${urgentTickets.length} demande${urgentTickets.length > 1 ? "s" : ""} urgente${urgentTickets.length > 1 ? "s" : ""} demandent votre attention.`;
-
-  return {
-    summaryText,
-    recommendations: recommendations.slice(0, 3),
-  };
+function getBarHeight(amount: number, maxAmount: number) {
+  if (amount <= 0) return 2;
+  return Math.max(6, Math.round((amount / maxAmount) * 100));
 }
 
 function getTodayIsoDate() {
   const now = new Date();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
-function isLeaseExpiringSoon(date: string) {
-  const now = new Date();
-  const leaseEnd = new Date(`${date}T12:00:00`);
-  const days = Math.ceil((leaseEnd.getTime() - now.getTime()) / 86_400_000);
-  return days >= 0 && days <= 90;
-}
-
-function getUnitLabel(unitId: string, store: LocalStore) {
-  return store.units.find((unit) => unit.id === unitId)?.label ?? "Logement";
-}
-
-function getTenantFullName(tenantId: string | null | undefined, store: LocalStore) {
-  const tenant = tenantId ? store.tenants.find((candidate) => candidate.id === tenantId) : null;
-  return tenant ? `${tenant.firstName} ${tenant.lastName}` : null;
-}
-
-export default function Home() {
-  const { setStore } = useLocalStore();
-  const { data, loading: snapshotLoading, error: snapshotError, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
-  const dashboardStore = data ?? emptyPortfolioStore;
-  const initialRoute = getInitialDashboardRoute();
-  const propertyDashboards = useMemo(() => getPropertyDashboards(dashboardStore), [dashboardStore]);
-  const portfolioSummary = useMemo(() => getPortfolioSummary(dashboardStore), [dashboardStore]);
-  const notifications = useMemo(() => getNotificationItems(dashboardStore), [dashboardStore]);
-  const recentActivities = useMemo(() => getRecentActivities(dashboardStore, 5), [dashboardStore]);
-  const copilotSummary = useMemo(() => getCopilotSummary(dashboardStore), [dashboardStore]);
-  const upcomingTasks = useMemo(() => getUpcomingTasks(dashboardStore.tasks, 3), [dashboardStore.tasks]);
-  const [quickTaskModalOpen, setQuickTaskModalOpen] = useState(false);
-  const [taskSuccessVisible, setTaskSuccessVisible] = useState(false);
-  const [selectedPropertyId, setSelectedPropertyId] = useState(initialRoute.propertyId ?? "");
-  const selectedProperty = useMemo(
-    () => propertyDashboards.find((property) => property.id === selectedPropertyId) ?? propertyDashboards[0],
-    [propertyDashboards, selectedPropertyId],
-  );
-  const [selectedUnitId, setSelectedUnitId] = useState(initialRoute.unitId ?? selectedProperty?.units[0]?.id ?? "");
-  const [unitDrawerOpen, setUnitDrawerOpen] = useState(Boolean(initialRoute.unitId));
-  const [unitDrawerTab, setUnitDrawerTab] = useState<UnitDrawerTab>(
-    isUnitDrawerTab(initialRoute.tab) ? initialRoute.tab : "resume",
-  );
-
-  const selectedUnit = useMemo(
-    () => selectedProperty?.units.find((unit) => unit.id === selectedUnitId) ?? selectedProperty?.units[0],
-    [selectedProperty?.units, selectedUnitId],
-  );
-  const selectedUnitDocuments = useMemo(
-    () => (selectedUnit ? dashboardStore.documents.filter((document) => document.unitId === selectedUnit.id) : []),
-    [dashboardStore.documents, selectedUnit],
-  );
-
-  async function refreshDashboardSnapshot() {
-    try {
-      await refreshPortfolioSnapshot();
-    } catch (error) {
-      console.error("Impossible de rafraîchir les données du tableau de bord.", error);
-    }
-  }
-
-  function selectProperty(propertyId: string) {
-    const nextProperty = propertyDashboards.find((property) => property.id === propertyId) ?? propertyDashboards[0];
-    setSelectedPropertyId(propertyId);
-    setSelectedUnitId(nextProperty.units[0]?.id ?? "");
-    setUnitDrawerOpen(false);
-    setUnitDrawerTab("resume");
-  }
-
-  function selectUnit(unitId: string) {
-    setSelectedUnitId(unitId);
-    setUnitDrawerTab("resume");
-    setUnitDrawerOpen(true);
-  }
-
-  async function createQuickTask(form: QuickTaskForm) {
-    const title = form.title.trim();
-
-    if (!title) {
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const propertyId = form.propertyId || selectedProperty?.id || dashboardStore.properties[0]?.id;
-    const unit = form.unitId ? dashboardStore.units.find((candidate) => candidate.id === form.unitId) : null;
-    const occupancy = unit ? getUnitOccupancy(unit, dashboardStore.leases, dashboardStore.tenants) : null;
-    const tenantId = form.tenantId || occupancy?.tenantId || null;
-    let task: AppTask;
-
-    try {
-      task = await createTaskRecord({
-        title,
-        description: form.description.trim(),
-        completed: false,
-        priority: form.priority,
-        dueDate: form.dueDate || now.slice(0, 10),
-        propertyId: propertyId || undefined,
-        unitId: form.unitId || undefined,
-        tenantId,
-        createdAt: now,
-      });
-
-      setStore((current) => ({
-        ...current,
-        tasks: upsertTaskInStore(current.tasks, task),
-      }));
-      void refreshDashboardSnapshot();
-    } catch (error) {
-      console.error("Impossible de créer la tâche.", error);
-      return;
-    }
-
-    try {
-      const activity = await createActivityRecord({
-        propertyId: propertyId || dashboardStore.properties[0]?.id || "",
-        unitId: task.unitId,
-        tenantId: task.tenantId,
-        type: "tache",
-        title: "Tâche personnelle créée",
-        description: `La tâche personnelle « ${task.title} » a été créée.`,
-      });
-
-      setStore((current) => addActivityToStore(current, activity));
-      void refreshDashboardSnapshot();
-    } catch (error) {
-      console.error("Impossible de créer l'activité de tâche.", error);
-    }
-    setQuickTaskModalOpen(false);
-    setTaskSuccessVisible(true);
-    window.setTimeout(() => setTaskSuccessVisible(false), 2200);
-  }
-
-  if (!selectedProperty || !selectedUnit) {
-    return (
-      <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-          <AppHeader />
-          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
-            <p className="text-sm font-semibold text-[var(--muted)]">
-              {snapshotLoading ? "Chargement du portefeuille..." : "Aucune donnée de portefeuille disponible."}
-            </p>
-            {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
-            {snapshotError ? (
-              <button className="btn-secondary mt-4" onClick={() => void refreshPortfolioSnapshot()} type="button">
-                Réessayer
-              </button>
-            ) : null}
-          </section>
-        </div>
-      </main>
-    );
-  }
-
-  return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-5 sm:px-6 lg:px-8">
-        <AppHeader />
-
-        <header className="flex flex-col gap-4 border-b border-[var(--border)] pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-medium text-[var(--muted)]">Vue globale · Portefeuille locatif québécois</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-normal text-[var(--foreground)] sm:text-[2.5rem]">
-              Tableau de bord
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
-              Santé du portefeuille, revenus mensuels, demandes d&apos;entretien et baux à surveiller.
-            </p>
-            {snapshotLoading ? <p className="mt-3 text-xs font-semibold uppercase text-[var(--muted)]">Synchronisation du portefeuille...</p> : null}
-            {snapshotError ? <p className="mt-3 text-sm font-semibold text-[color:var(--yellow)]">{snapshotError}</p> : null}
-            <button className="btn-primary mt-4" onClick={() => exportPortfolioReport(dashboardStore)} type="button">
-              Exporter le rapport portefeuille
-            </button>
-          </div>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:min-w-[680px] xl:grid-cols-5">
-            <Metric label="Santé du portefeuille" value={portfolioSummary.healthScore.toString()} subtitle="En santé" />
-            <Metric label="Loyer mensuel" value={currency.format(portfolioSummary.monthlyRent)} />
-            <Metric label="Demandes d'entretien" value={portfolioSummary.openMaintenanceCount.toString()} />
-            <Metric label="Enjeux urgents" value={portfolioSummary.urgentIssueCount.toString()} />
-            <Metric label="Baux à surveiller" value={portfolioSummary.leasesExpiringSoon.toString()} />
-          </div>
-        </header>
-
-        <CopilotCard summary={copilotSummary} />
-
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.05fr)] lg:items-start">
-          <div className="min-w-0">
-            <BuildingCard
-              property={selectedProperty}
-              selectedUnitId={selectedUnitId}
-              onSelect={selectUnit}
-            />
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-[var(--muted)]">Immeuble sélectionné</p>
-              <h2 className="mt-1 line-clamp-2 text-xl font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal]">{selectedProperty.name}</h2>
-            </div>
-            <div className="grid min-w-0 gap-2">
-              {propertyDashboards.map((property) => (
-                <button
-                  key={property.id}
-                  type="button"
-                  onClick={() => selectProperty(property.id)}
-                  className={`min-w-0 rounded-lg border px-4 py-3 text-left transition ${
-                    selectedPropertyId === property.id
-                      ? "border-[color:var(--accent)] bg-[var(--surface-3)]"
-                      : "border-[var(--border)] bg-[var(--surface-2)] hover:border-[color:var(--accent)]/60"
-                  }`}
-                >
-                  <p className="line-clamp-1 font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal]">{property.name}</p>
-                  <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal]">
-                    {property.address}, {property.city}
-                  </p>
-                </button>
-              ))}
-            </div>
-            <div className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-              <div className="flex min-w-0 items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-[var(--muted)]">Aperçu rapide</p>
-                  <h3 className="mt-1 line-clamp-2 text-lg font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal]">
-                    {selectedProperty.units.length} logements, {selectedProperty.city}
-                  </h3>
-                </div>
-                <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-                  Données MVP
-                </span>
-              </div>
-              <div className="mt-5 grid min-w-0 gap-3 sm:grid-cols-2">
-                <SnapshotItem label="Occupation" value="100 %" />
-                <SnapshotItem label="Loyer moyen" value={currency.format(Math.round(selectedProperty.monthlyRent / Math.max(selectedProperty.units.length, 1)))} />
-                <SnapshotItem label="Cadre des baux" value="TAL du Québec" />
-                <SnapshotItem label="Prochaine action" value={selectedProperty.issueCount > 0 ? "Suivi prioritaire" : "Aucune urgence"} />
-              </div>
-            </div>
-
-            <div className="grid min-w-0 gap-3">
-              {selectedProperty.units.map((unit) => (
-                <button
-                  key={unit.id}
-                  type="button"
-                  onClick={() => selectUnit(unit.id)}
-                  className={`flex min-w-0 items-center justify-between gap-4 rounded-lg border p-4 text-left transition ${
-                    selectedUnitId === unit.id
-                      ? "border-[color:var(--accent)] bg-[var(--surface-3)] text-[var(--foreground)]"
-                      : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)] hover:border-[color:var(--accent)]/60 hover:bg-[var(--surface)]"
-                  }`}
-                >
-                  <div className="min-w-0">
-                    <p className="line-clamp-1 font-semibold [overflow-wrap:anywhere] [word-break:normal]">{unit.label}</p>
-                    <p className="mt-1 line-clamp-2 text-sm text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal]">
-                      {getTenantName(unit)} - {currency.format(unit.monthlyRent)}/mois
-                    </p>
-                  </div>
-                  <HealthBadge health={unit.health} compact />
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <DashboardSidePanel notifications={notifications} tasks={upcomingTasks} />
-        </section>
-
-        <section>
-          <RecentActivityCard activities={recentActivities} />
-        </section>
-      </div>
-      <button
-        type="button"
-        aria-label="Ajouter une tâche"
-        onClick={() => setQuickTaskModalOpen(true)}
-        className="group fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[color:var(--accent)] text-3xl font-light leading-none text-white shadow-[0_18px_40px_rgba(37,99,255,0.35)] transition hover:-translate-y-0.5 hover:bg-[color:var(--accent)]/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
-      >
-        <span aria-hidden="true" className="-mt-0.5">+</span>
-        <span className="pointer-events-none absolute bottom-full right-0 mb-3 whitespace-nowrap rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] opacity-0 shadow-[0_12px_32px_rgba(0,0,0,0.22)] transition group-hover:opacity-100 group-focus-visible:opacity-100">
-          Ajouter une tâche
-        </span>
-      </button>
-      {taskSuccessVisible ? (
-        <div className="fixed bottom-24 right-6 z-40 rounded-full border border-[color:var(--green)]/35 bg-[color:var(--green)]/10 px-4 py-2 text-sm font-semibold text-[color:var(--green)] shadow-[0_12px_30px_rgba(0,0,0,0.25)]">
-          Tâche créée
-        </div>
-      ) : null}
-      {quickTaskModalOpen ? (
-        <QuickTaskModal
-          onCancel={() => setQuickTaskModalOpen(false)}
-          onCreate={createQuickTask}
-          store={dashboardStore}
-        />
-      ) : null}
-      <UnitDrawer
-        unit={selectedUnit}
-        documents={selectedUnitDocuments}
-        notesSource={dashboardStore.notes}
-        setStore={setStore}
-        onDataChange={refreshDashboardSnapshot}
-        open={unitDrawerOpen}
-        activeTab={unitDrawerTab}
-        onTabChange={setUnitDrawerTab}
-        onClose={() => setUnitDrawerOpen(false)}
-      />
-    </main>
-  );
-}
-
-function Metric({ label, value, subtitle }: { label: string; value: string; subtitle?: string }) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-3">
-      <p className="text-xs font-medium text-[var(--muted)]">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-[var(--foreground)]">{value}</p>
-      {subtitle ? <p className="mt-1 text-xs font-semibold text-[color:var(--green)]">{subtitle}</p> : null}
-    </div>
-  );
-}
-
-type CopilotRecommendation = {
-  title: string;
-  detail: string;
-  href: string;
-  priority: Health;
-};
-
-type CopilotSummary = {
-  summaryText: string;
-  recommendations: CopilotRecommendation[];
-};
-
-type QuickTaskForm = {
-  title: string;
-  description: string;
-  priority: TaskPriority;
-  dueDate: string;
-  propertyId: string;
-  unitId: string;
-  tenantId: string;
-};
-
-function CopilotCard({ summary }: { summary: CopilotSummary }) {
-  return (
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.35fr)] lg:items-start">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium text-[var(--muted)]">Copilot Immo</p>
-              <h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">Résumé du portefeuille</h2>
-            </div>
-            <span className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/10 px-3 py-1 text-xs font-semibold text-[color:var(--accent)]">
-              Règles locales
-            </span>
-          </div>
-          <p className="text-sm leading-6 text-[var(--muted)]">{summary.summaryText}</p>
-        </div>
-
-        <div>
-          <p className="text-sm font-semibold text-[var(--foreground)]">Actions recommandées</p>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            {summary.recommendations.map((recommendation) => (
-              <Link
-                key={recommendation.title}
-                href={recommendation.href}
-                className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 transition hover:border-[color:var(--accent)]/60 hover:bg-[var(--surface-3)]"
-              >
-                <div className="flex items-start gap-2">
-                  <span className={`mt-1 h-2 w-2 shrink-0 rounded-full ${healthCopy[recommendation.priority].dot}`} />
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold leading-5 text-[var(--foreground)]">{recommendation.title}</p>
-                    <p className="mt-1 text-xs leading-5 text-[var(--muted)]">{recommendation.detail}</p>
-                  </div>
-                </div>
-              </Link>
-            ))}
-            {summary.recommendations.length === 0 ? (
-              <div className="rounded-lg border border-[color:var(--green)]/30 bg-[color:var(--green)]/10 p-3 text-sm font-medium text-[color:var(--green)]">
-                Aucune recommandation prioritaire pour le moment.
-              </div>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function UpcomingTasksCard({ tasks }: { tasks: AppTask[] }) {
-  return (
-    <section className="w-full min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-[var(--muted)]">Mes tâches</p>
-          <h2 className="mt-1 text-xl font-semibold text-[var(--foreground)]">À venir</h2>
-        </div>
-        <Link className="btn-secondary shrink-0" href="/taches">
-          Voir toutes les tâches
-        </Link>
-      </div>
-      <div className="mt-4 grid min-w-0 gap-2">
-        {tasks.map((task) => (
-          <div key={task.id} className="min-w-0 overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="line-clamp-2 font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal]">{task.title}</p>
-                <p className="mt-1 text-sm text-[var(--muted)]">Échéance {formatDate(task.dueDate)}</p>
-              </div>
-              <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-2.5 py-1 text-xs font-semibold text-[var(--muted)]">
-                {task.priority}
-              </span>
-            </div>
-          </div>
-        ))}
-        {tasks.length === 0 ? (
-          <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">
-            Aucune tâche personnelle à venir.
-          </p>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function QuickTaskModal({
-  onCancel,
-  onCreate,
-  store,
-}: {
-  onCancel: () => void;
-  onCreate: (form: QuickTaskForm) => void | Promise<void>;
-  store: LocalStore;
-}) {
-  const [form, setForm] = useState<QuickTaskForm>({
-    title: "",
-    description: "",
-    priority: "moyenne",
-    dueDate: "",
-    propertyId: "",
-    unitId: "",
-    tenantId: "",
-  });
-  const availableUnits = store.units.filter((unit) => !form.propertyId || unit.propertyId === form.propertyId);
-  const selectedUnit = store.units.find((unit) => unit.id === form.unitId);
-  const availableTenants = store.tenants.filter((tenant) => {
-    const selectedOccupancy = selectedUnit ? getUnitOccupancy(selectedUnit, store.leases, store.tenants) : null;
-
-    if (selectedOccupancy?.tenantId) {
-      return tenant.id === selectedOccupancy.tenantId;
-    }
-
-    if (!form.propertyId) {
-      return true;
-    }
-
-    return store.units.some((unit) => {
-      const occupancy = getUnitOccupancy(unit, store.leases, store.tenants);
-      return unit.propertyId === form.propertyId && occupancy.tenantId === tenant.id;
-    });
-  });
-
-  function updateProperty(propertyId: string) {
-    setForm({ ...form, propertyId, unitId: "", tenantId: "" });
-  }
-
-  function updateUnit(unitId: string) {
-    const unit = store.units.find((candidate) => candidate.id === unitId);
-    const occupancy = unit ? getUnitOccupancy(unit, store.leases, store.tenants) : null;
-    setForm({ ...form, unitId, tenantId: occupancy?.tenantId ?? "" });
-  }
-
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)] shadow-[0_24px_70px_rgba(0,0,0,0.45)]">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-semibold uppercase text-[var(--muted)]">Mes tâches</p>
-            <h2 className="mt-1 text-2xl font-semibold">Nouvelle tâche rapide</h2>
-          </div>
-          <button
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-xl leading-none text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
-            onClick={onCancel}
-            type="button"
-            aria-label="Fermer"
-          >
-            ×
-          </button>
-        </div>
-
-        <div className="mt-5 grid gap-3">
-          <TextInput label="Titre" value={form.title} onChange={(title) => setForm({ ...form, title })} />
-          <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
-            Description optionnelle
-            <textarea
-              className="min-h-24 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
-              value={form.description}
-              onChange={(event) => setForm({ ...form, description: event.target.value })}
-            />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <SelectInput
-              label="Priorité"
-              value={form.priority}
-              onChange={(priority) => setForm({ ...form, priority: priority as TaskPriority })}
-              options={[
-                ["faible", "Faible"],
-                ["moyenne", "Moyenne"],
-                ["élevée", "Élevée"],
-              ]}
-            />
-            <TextInput
-              label="Date d'échéance optionnelle"
-              type="date"
-              value={form.dueDate}
-              onChange={(dueDate) => setForm({ ...form, dueDate })}
-            />
-          </div>
-          <SelectInput
-            label="Immeuble optionnel"
-            value={form.propertyId}
-            onChange={updateProperty}
-            options={[["", "Aucun"], ...store.properties.map((property) => [property.id, property.name])]}
-          />
-          <SelectInput
-            label="Logement optionnel"
-            value={form.unitId}
-            onChange={updateUnit}
-            options={[["", "Aucun"], ...availableUnits.map((unit) => [unit.id, unit.label])]}
-          />
-          <SelectInput
-            label="Locataire optionnel"
-            value={form.tenantId}
-            onChange={(tenantId) => setForm({ ...form, tenantId })}
-            options={[["", "Aucun"], ...availableTenants.map((tenant) => [tenant.id, `${tenant.firstName} ${tenant.lastName}`])]}
-          />
-        </div>
-
-        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button className="btn-secondary" onClick={onCancel} type="button">
-            Annuler
-          </button>
-          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={!form.title.trim()} onClick={() => onCreate(form)} type="button">
-            Créer la tâche
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TextInput({
-  label,
-  onChange,
-  type = "text",
-  value,
-}: {
-  label: string;
-  onChange: (value: string) => void;
-  type?: string;
-  value: string;
-}) {
-  return (
-    <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
-      {label}
-      <input
-        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </label>
-  );
-}
-
-function SelectInput({
-  label,
-  onChange,
-  options,
-  value,
-}: {
-  label: string;
-  onChange: (value: string) => void;
-  options: string[][];
-  value: string;
-}) {
-  return (
-    <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
-      {label}
-      <select
-        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-      >
-        {options.map(([optionValue, optionLabel]) => (
-          <option key={optionValue} value={optionValue}>
-            {optionLabel}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-function RecentActivityCard({ activities }: { activities: UnitActivity[] }) {
-  return (
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-[var(--muted)]">Activité récente</p>
-          <h2 className="mt-1 text-lg font-semibold text-[var(--foreground)]">Derniers événements</h2>
-        </div>
-        <span className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-          5 derniers
-        </span>
-      </div>
-      <div className="mt-4 grid gap-2">
-        {activities.map((activity) => (
-          <div key={activity.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="font-semibold text-[var(--foreground)]">{activity.title}</p>
-                <p className="mt-1 text-sm text-[var(--muted)]">{activity.description}</p>
-              </div>
-              <span className="shrink-0 text-xs font-semibold uppercase text-[var(--muted)]">
-                {activity.type} · {formatDate(activity.date)}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function getUpcomingTasks(tasks: AppTask[], limit: number) {
-  return tasks
-    .filter((task) => !task.completed)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-    .slice(0, limit);
-}
-
-function upsertTaskInStore(tasks: AppTask[], task: AppTask) {
-  return tasks.some((candidate) => candidate.id === task.id)
-    ? tasks.map((candidate) => (candidate.id === task.id ? task : candidate))
-    : [task, ...tasks];
-}
-
-function BuildingCard({
-  property,
-  selectedUnitId,
-  onSelect,
-}: {
-  property: PropertyDashboard;
-  selectedUnitId: string;
-  onSelect: (unitId: string) => void;
-}) {
-  const usesGridTwin = property.propertyType === "immeuble" || property.units.length >= 5;
-
-  return (
-    <div className="relative flex min-h-[560px] flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface-3)] p-5 sm:min-h-[620px] sm:p-6">
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(148,163,184,0.035)_1px,transparent_1px)] bg-[length:24px_24px]" />
-      {!usesGridTwin ? (
-        <div className="relative z-10 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase text-[var(--muted)]">Jumeau numérique</p>
-            <h3 className="mt-1 text-lg font-semibold text-[var(--foreground)]">{property.name}</h3>
-          </div>
-          <span className="rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-            {property.units.length} {property.units.length > 1 ? "logements actifs" : "logement actif"}
-          </span>
-        </div>
-      ) : null}
-
-      <PropertyVisual property={property} selectedUnitId={selectedUnitId} onSelect={onSelect} />
-    </div>
-  );
-}
-
-function PropertyVisual({
-  property,
-  selectedUnitId,
-  onSelect,
-}: {
-  property: PropertyDashboard;
-  selectedUnitId: string;
-  onSelect: (unitId: string) => void;
-}) {
-  return (
-    <div className="relative z-10 mt-3 flex flex-1 items-start justify-center">
-      <BuildingVisual
-        type={property.propertyType}
-        propertyName={property.name}
-        units={property.units}
-        selectedUnitId={selectedUnitId}
-        onSelectUnit={onSelect}
-      />
-    </div>
-  );
-}
-
-function DashboardSidePanel({ notifications, tasks }: { notifications: NotificationItem[]; tasks: AppTask[] }) {
-  return (
-    <aside className="flex w-full min-w-0 flex-col gap-4 overflow-hidden lg:sticky lg:top-5">
-      <NotificationsPanel notifications={notifications} />
-      <UpcomingTasksCard tasks={tasks} />
-    </aside>
-  );
-}
-
-function NotificationsPanel({ notifications }: { notifications: NotificationItem[] }) {
-  const topNotifications = notifications.slice(0, 5);
-
-  return (
-    <section className="flex max-h-[620px] w-full min-w-0 flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-[var(--muted)]">Centre de vigilance</p>
-          <h2 className="mt-1 line-clamp-2 text-xl font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal]">Notifications prioritaires</h2>
-        </div>
-        <span className="shrink-0 rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-3 py-1 text-xs font-semibold text-[var(--muted)]">
-          Top 5
-        </span>
-      </div>
-      <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted)]">
-        Alertes actives générées à partir des paiements, baux, demandes d&apos;entretien et documents du portefeuille.
-      </p>
-      <div className="custom-scrollbar mt-4 min-h-0 flex-1 overflow-y-auto pr-1">
-        <NotificationList notifications={topNotifications} compact />
-      </div>
-      {notifications.length > topNotifications.length ? (
-        <Link
-          href="/notifications"
-          className="mt-4 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-center text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
-        >
-          Voir toutes les notifications
-        </Link>
-      ) : null}
-    </section>
-  );
-}
-
-type UnitDrawerTab = "resume" | "bail" | "paiements" | "historique" | "documents" | "notes";
-
-function isUnitDrawerTab(value: string | null): value is UnitDrawerTab {
-  return value === "resume" || value === "bail" || value === "paiements" || value === "historique" || value === "documents" || value === "notes";
-}
-
-function UnitDrawer({
-  activeTab,
-  documents,
-  notesSource,
-  open,
-  setStore,
-  onDataChange,
-  unit,
-  onTabChange,
-  onClose,
-}: {
-  activeTab: UnitDrawerTab;
-  documents: PropertyDocument[];
-  notesSource: AppNote[];
-  open: boolean;
-  setStore: (updater: LocalStore | ((current: LocalStore) => LocalStore)) => void;
-  onDataChange: () => void;
-  unit: UnitDashboard;
-  onTabChange: (tab: UnitDrawerTab) => void;
-  onClose: () => void;
-}) {
-  const activities = useMemo(
-    () =>
-      [...unit.activities].sort(
-        (a, b) => new Date(`${b.date}T12:00:00`).getTime() - new Date(`${a.date}T12:00:00`).getTime(),
-      ),
-    [unit.activities],
-  );
-
-  return (
-    <div
-      className={`fixed inset-0 z-50 transition ${open ? "pointer-events-auto" : "pointer-events-none"}`}
-      aria-hidden={!open}
-    >
-      <button
-        type="button"
-        aria-label="Fermer le panneau"
-        onClick={onClose}
-        className={`absolute inset-0 bg-black/55 transition-opacity duration-300 ${
-          open ? "opacity-100" : "opacity-0"
-        }`}
-      />
-      <aside
-        className={`custom-scrollbar absolute right-0 top-0 h-full w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] transition-transform duration-300 ease-out sm:w-[460px] ${
-          open ? "translate-x-0" : "translate-x-full"
-        }`}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Détails du ${unit.label}`}
-      >
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-medium text-[var(--muted)]">{unit.floor}</p>
-            <h2 className="mt-1 text-2xl font-semibold text-[var(--foreground)]">{unit.label}</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
-            aria-label="Fermer"
-          >
-            <span aria-hidden="true" className="text-xl leading-none">
-              ×
-            </span>
-          </button>
-        </div>
-
-        <div className="mt-6 grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1 sm:grid-cols-3">
-          <DrawerTabButton active={activeTab === "resume"} onClick={() => onTabChange("resume")}>
-            Résumé
-          </DrawerTabButton>
-          <DrawerTabButton active={activeTab === "bail"} onClick={() => onTabChange("bail")}>
-            Bail
-          </DrawerTabButton>
-          <DrawerTabButton active={activeTab === "paiements"} onClick={() => onTabChange("paiements")}>
-            Paiements
-          </DrawerTabButton>
-          <DrawerTabButton active={activeTab === "historique"} onClick={() => onTabChange("historique")}>
-            Historique
-          </DrawerTabButton>
-          <DrawerTabButton active={activeTab === "documents"} onClick={() => onTabChange("documents")}>
-            Documents
-          </DrawerTabButton>
-          <DrawerTabButton active={activeTab === "notes"} onClick={() => onTabChange("notes")}>
-            Notes
-          </DrawerTabButton>
-        </div>
-
-        {activeTab === "resume" ? <UnitSummary unit={unit} /> : null}
-        {activeTab === "bail" ? <UnitLease unit={unit} /> : null}
-        {activeTab === "paiements" ? <UnitPayments payments={unit.payments} /> : null}
-        {activeTab === "historique" ? <UnitTimeline activities={activities} /> : null}
-        {activeTab === "documents" ? <UnitDocuments documents={documents} onDataChange={onDataChange} setStore={setStore} unit={unit} /> : null}
-        {activeTab === "notes" ? (
-          <div className="mt-6">
-            <NotesPanel
-              notesSource={notesSource}
-              onChanged={onDataChange}
-              propertyId={unit.propertyId}
-              targetId={unit.id}
-              targetType="logement"
-              tenantId={unit.tenantId}
-              title={`Notes · ${unit.label}`}
-              unitId={unit.id}
-            />
-          </div>
-        ) : null}
-      </aside>
-    </div>
-  );
-}
-
-function DrawerTabButton({
-  active,
-  children,
-  onClick,
-}: {
-  active: boolean;
-  children: ReactNode;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
-        active
-          ? "bg-[color:var(--accent)] text-white"
-          : "text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-[var(--foreground)]"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function UnitSummary({ unit }: { unit: UnitDashboard }) {
-  return (
-    <>
-      <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-        <p className="text-xs font-medium uppercase text-[var(--muted)]">Statut</p>
-        <div className="mt-2">
-          <HealthBadge health={unit.health} />
-        </div>
-      </div>
-
-      <div className="mt-4 grid gap-3">
-        <DetailItem label="Locataire" value={getTenantName(unit)} />
-        <DetailItem label="Loyer" value={`${currency.format(unit.monthlyRent)} / mois`} />
-        <DetailItem label="Statut paiement" value={paymentStatusLabel[unit.paymentStatus]} />
-        <DetailItem label="Fin du bail" value={unit.leaseEndDate} />
-        <DetailItem label="Demandes d'entretien ouvertes" value={unit.openTickets.length.toString()} />
-      </div>
-      <div className="mt-4">
-        <TaskComposer
-          compact
-          propertyId={unit.propertyId}
-          tenantId={unit.tenantId}
-          title={`Créer une tâche personnelle · ${unit.label}`}
-          unitId={unit.id}
-        />
-      </div>
-    </>
-  );
-}
-
-function UnitTimeline({ activities }: { activities: UnitDashboard["activities"] }) {
-  if (activities.length === 0) {
-    return (
-      <p className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm font-medium text-[var(--muted)]">
-        Aucun historique pour ce logement.
-      </p>
-    );
-  }
-
-  return (
-    <ol className="mt-6 space-y-3">
-      {activities.map((activity) => (
-        <li key={activity.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="font-semibold text-[var(--foreground)]">{activity.title}</p>
-              <p className="mt-1 text-xs font-semibold uppercase text-[var(--muted)]">
-                {activity.type} · {formatDate(activity.date)}
-              </p>
-            </div>
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{activity.description}</p>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function UnitDocuments({
-  documents,
-  onDataChange,
-  setStore,
-  unit,
-}: {
-  documents: PropertyDocument[];
-  onDataChange: () => void;
-  setStore: (updater: LocalStore | ((current: LocalStore) => LocalStore)) => void;
-  unit: UnitDashboard;
-}) {
-  const [documentType, setDocumentType] = useState<PropertyDocument["type"]>("bail");
-
-  async function uploadDocument(file: File) {
-    const now = new Date().toISOString();
-    try {
-      const document = await createDocumentWithFile(
-        {
-          name: file.name,
-          type: documentType,
-          propertyId: unit.propertyId,
-          unitId: unit.id,
-          relatedEntityType: documentType === "paiement" ? "paiement" : documentType === "bail" ? "bail" : "logement",
-          relatedEntityId: unit.id,
-          uploadDate: now.slice(0, 10),
-          uploadedAt: now,
-        },
-        file,
-      );
-
-      setStore((current) => ({
-        ...current,
-        documents: upsertDocumentInStore(current.documents, document),
-      }));
-      onDataChange();
-
-      const activity = await createActivityRecord({
-        propertyId: unit.propertyId,
-        unitId: unit.id,
-        tenantId: unit.tenantId,
-        type: "document",
-        title: "Document téléversé",
-        description: `${document.name} a été téléversé pour ${unit.label}.`,
-        date: document.uploadDate,
-      });
-
-      setStore((current) => addActivityToStore(current, activity));
-      onDataChange();
-    } catch (error) {
-      console.error("Impossible de créer le document ou son activité.", error);
-    }
-  }
-
-  async function deleteDocument(document: PropertyDocument) {
-    if (!window.confirm(`Supprimer le document « ${document.name} » ?`)) {
-      return;
-    }
-
-    try {
-      await deleteDocumentRecord(document.id);
-
-      setStore((current) => ({
-        ...current,
-        documents: current.documents.filter((candidate) => candidate.id !== document.id),
-      }));
-      onDataChange();
-
-      const activity = await createActivityRecord({
-        propertyId: unit.propertyId,
-        unitId: unit.id,
-        tenantId: unit.tenantId,
-        type: "document",
-        title: "Document supprimé",
-        description: `${document.name} a été supprimé du dossier de ${unit.label}.`,
-      });
-
-      setStore((current) => addActivityToStore(current, activity));
-      onDataChange();
-    } catch (error) {
-      console.error("Impossible de supprimer le document ou de créer son activité.", error);
-    }
-  }
-
-  return (
-    <div className="mt-6 grid gap-3">
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-        <p className="font-semibold text-[var(--foreground)]">Téléverser un document</p>
-        <div className="mt-3 grid gap-3">
-          <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
-            Type
-            <select
-              className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
-              value={documentType}
-              onChange={(event) => setDocumentType(event.target.value as PropertyDocument["type"])}
-            >
-              {Object.entries(documentTypeLabel).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <input
-            className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] outline-none file:mr-3 file:rounded-md file:border-0 file:bg-[color:var(--accent)] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
-            type="file"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-
-              if (file) {
-                void uploadDocument(file);
-                event.currentTarget.value = "";
-              }
-            }}
-          />
-        </div>
-      </div>
-
-      {documents.length === 0 ? (
-        <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm font-medium text-[var(--muted)]">
-          Aucun document associé à ce logement.
-        </p>
-      ) : null}
-
-      {documents.map((document) => (
-        <div key={document.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="font-semibold text-[var(--foreground)]">{document.name}</p>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {documentTypeLabel[document.type]} · Téléversé le {formatDate(document.uploadDate)}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <DocumentFileActions document={document} />
-              <button className="btn-danger" onClick={() => deleteDocument(document)} type="button">
-                Supprimer
-              </button>
-            </div>
-          </div>
-        </div>
-      ))}
-      <Link
-        href="/documents"
-        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-center text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
-      >
-        Voir tous les documents
-      </Link>
-    </div>
-  );
-}
-
-function upsertDocumentInStore(documents: PropertyDocument[], document: PropertyDocument) {
-  return documents.some((candidate) => candidate.id === document.id)
-    ? documents.map((candidate) => (candidate.id === document.id ? document : candidate))
-    : [...documents, document];
-}
-
-function UnitPayments({ payments }: { payments: UnitDashboard["payments"] }) {
-  const sortedPayments = [...payments].sort((a, b) => b.month.localeCompare(a.month));
-
-  if (sortedPayments.length === 0) {
-    return (
-      <p className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-sm font-medium text-[var(--muted)]">
-        Aucun paiement associé à ce logement.
-      </p>
-    );
-  }
-
-  return (
-    <div className="mt-6 grid gap-3">
-      {sortedPayments.map((payment) => (
-        <div key={payment.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="font-semibold text-[var(--foreground)]">{payment.month}</p>
-              <p className="mt-1 text-sm text-[var(--muted)]">Échéance: {payment.dueDate}</p>
-            </div>
-            <span className="rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-2.5 py-1 text-xs font-semibold text-[var(--muted)]">
-              {rentPaymentStatusLabel[payment.status]}
-            </span>
-          </div>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <SnapshotItem label="Montant dû" value={currency.format(payment.amountDue)} />
-            <SnapshotItem label="Montant payé" value={currency.format(payment.amountPaid)} />
-          </div>
-          <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{payment.notes}</p>
-        </div>
-      ))}
-      <Link
-        href="/paiements"
-        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-center text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
-      >
-        Ouvrir la page des paiements
-      </Link>
-    </div>
-  );
-}
-
-function UnitLease({ unit }: { unit: UnitDashboard }) {
-  const renewalStatus =
-    unit.paymentStatus === "late" ? "Action requise" : unit.paymentStatus === "dueSoon" ? "À surveiller" : "À jour";
-
-  return (
-    <div className="mt-6 grid gap-3">
-      <DetailItem label="Date de début" value={unit.leaseStartDate} />
-      <DetailItem label="Date de fin" value={unit.leaseEndDate} />
-      <DetailItem label="Montant du loyer" value={`${currency.format(unit.monthlyRent)} / mois`} />
-      <DetailItem label="Statut paiement" value={paymentStatusLabel[unit.paymentStatus]} />
-      <DetailItem label="Statut de renouvellement" value={renewalStatus} />
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
-        <p className="text-xs font-medium uppercase text-[var(--muted)]">Notes</p>
-        <p className="mt-2 text-sm leading-6 text-[var(--foreground)]">{unit.notes}</p>
-      </div>
-      <Link
-        href="/baux"
-        className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-center text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
-      >
-        Ouvrir la page des baux
-      </Link>
-    </div>
-  );
-}
-
-function DetailItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
-      <p className="text-xs font-medium uppercase text-[var(--muted)]">{label}</p>
-      <p className="mt-1 font-semibold text-[var(--foreground)]">{value}</p>
-    </div>
-  );
-}
-
-function SnapshotItem({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-3">
-      <p className="text-xs font-medium text-[var(--muted)]">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-[var(--foreground)]">{value}</p>
-    </div>
-  );
-}
-
-function HealthBadge({ health, compact = false }: { health: Health; compact?: boolean }) {
-  return (
-    <span
-      className={`inline-flex shrink-0 items-center gap-2 rounded-full border font-semibold ${healthCopy[health].classes} ${
-        compact ? "px-2.5 py-1 text-xs" : "px-3 py-1.5 text-sm"
-      }`}
-    >
-      <span className={`h-2 w-2 rounded-full ${healthCopy[health].dot}`} />
-      {healthCopy[health].label}
-    </span>
-  );
+  return `${now.getFullYear()}-${`${now.getMonth() + 1}`.padStart(2, "0")}-${`${now.getDate()}`.padStart(2, "0")}`;
 }

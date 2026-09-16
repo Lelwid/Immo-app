@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import type { ReactNode } from "react";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
 import { NotesPanel } from "@/components/NotesPanel";
 import { TaskComposer } from "@/components/TaskComposer";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
 import {
   archiveTenantAndEndActiveLeases,
@@ -16,8 +18,13 @@ import {
   updateTenantProfile,
 } from "@/lib/data/leaseAssignmentService";
 import { getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
-import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
+import {
+  createTenantPortalInvitation,
+  disableTenantPortalAccess,
+  getTenantPortalAccessForTenant,
+  type TenantPortalInvitation,
+} from "@/lib/data/tenantPortalService";
 import { currency, getPropertyName, rentPaymentStatusLabel } from "@/lib/mockData";
 import type { LocalStore, PaymentRecord, Tenant, Unit } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
@@ -76,57 +83,26 @@ export default function LocatairesPage() {
 function LocatairesContent() {
   const { store, setStore } = useLocalStore();
   const searchParams = useSearchParams();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
   const [selectedTenantId, setSelectedTenantId] = useState<string | null>(() => searchParams.get("tenant"));
   const [activeTab, setActiveTab] = useState<TenantDrawerTab>("resume");
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [tenantToDelete, setTenantToDelete] = useState<Tenant | null>(null);
   const [showCreateTenantModal, setShowCreateTenantModal] = useState(false);
+  const [newTenantError, setNewTenantError] = useState("");
+  const [newTenantSaving, setNewTenantSaving] = useState(false);
+  const newTenantSaveInFlightRef = useRef(false);
   const [newTenantForm, setNewTenantForm] = useState<NewTenantForm>(() => createEmptyTenantForm(store));
-  const snapshotStore = snapshot ?? store;
+  const snapshotStore = data ?? emptyPortfolioStore;
   const rows = useMemo(() => getTenantRows(snapshotStore), [snapshotStore]);
   const summary = useMemo(() => getTenantSummary(snapshotStore), [snapshotStore]);
   const selectedTenant = snapshotStore.tenants.find((tenant) => tenant.id === selectedTenantId) ?? null;
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger les locataires depuis le snapshot.", error);
-        if (active) {
-          setSnapshotError("Impossible de synchroniser les locataires. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   async function refreshTenantSnapshot() {
     try {
-      const nextSnapshot = await refreshSnapshot();
-      setSnapshot(nextSnapshot);
-      setSnapshotError("");
+      await refreshSnapshot();
     } catch (error) {
       console.error("Impossible de rafraîchir les locataires.", error);
-      setSnapshotError("Impossible de rafraîchir les locataires. Les données locales sont affichées.");
     }
   }
 
@@ -137,32 +113,45 @@ function LocatairesContent() {
 
   function openCreateTenantModal() {
     setNewTenantForm(createEmptyTenantForm(snapshotStore));
+    setNewTenantError("");
     setShowCreateTenantModal(true);
   }
 
   async function saveNewTenant() {
-    if (!isNewTenantFormValid(newTenantForm)) {
+    if (newTenantSaveInFlightRef.current || !isNewTenantFormValid(newTenantForm)) {
       return;
     }
 
-    const nextStore = await assignTenantToUnit(snapshotStore, {
-      propertyId: newTenantForm.propertyId,
-      unitId: newTenantForm.unitId,
-      fullName: newTenantForm.fullName,
-      email: newTenantForm.email,
-      phone: newTenantForm.phone,
-      monthlyRent: Number(newTenantForm.monthlyRent),
-      leaseStartDate: newTenantForm.leaseStartDate,
-      leaseEndDate: newTenantForm.leaseEndDate,
-      paymentStatus: newTenantForm.paymentStatus,
-      initialAmountPaid: Number(newTenantForm.initialAmountPaid),
-      paymentReceivedDate: newTenantForm.paymentReceivedDate,
-      notes: newTenantForm.notes,
-    });
+    newTenantSaveInFlightRef.current = true;
+    setNewTenantSaving(true);
+    setNewTenantError("");
 
-    setStore(nextStore);
-    await refreshTenantSnapshot();
-    setShowCreateTenantModal(false);
+    try {
+      const nextStore = await assignTenantToUnit(snapshotStore, {
+        propertyId: newTenantForm.propertyId,
+        unitId: newTenantForm.unitId,
+        fullName: newTenantForm.fullName,
+        email: newTenantForm.email,
+        phone: newTenantForm.phone,
+        monthlyRent: Number(newTenantForm.monthlyRent),
+        leaseStartDate: newTenantForm.leaseStartDate,
+        leaseEndDate: newTenantForm.leaseEndDate,
+        paymentStatus: newTenantForm.paymentStatus,
+        initialAmountPaid: Number(newTenantForm.initialAmountPaid),
+        paymentReceivedDate: newTenantForm.paymentReceivedDate,
+        notes: newTenantForm.notes,
+      });
+
+      setStore(nextStore);
+      await refreshTenantSnapshot();
+      setShowCreateTenantModal(false);
+    } catch (error) {
+      console.error("Impossible d'ajouter le locataire.", error);
+      setNewTenantError("Impossible d’ajouter le locataire et son bail. Réessayez.");
+    } finally {
+      newTenantSaveInFlightRef.current = false;
+      setNewTenantSaving(false);
+    }
   }
 
   async function saveTenant(form: TenantForm) {
@@ -194,9 +183,22 @@ function LocatairesContent() {
   return (
     <RouteShell title="Locataires" description="Gestion indépendante des locataires, baux, paiements et documents associés.">
       <section className="grid gap-5">
-        {snapshotLoading ? <p className="text-sm text-[var(--muted)]">Synchronisation des locataires...</p> : null}
-        {snapshotError ? <p className="text-sm font-semibold text-[color:var(--amber)]">{snapshotError}</p> : null}
+        {!data ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+            <p className="text-sm font-semibold text-[var(--muted)]">
+              {snapshotLoading ? "Chargement des locataires..." : "Impossible de charger les données du portefeuille."}
+            </p>
+            {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+            {snapshotError ? (
+              <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+                Réessayer
+              </button>
+            ) : null}
+          </section>
+        ) : null}
 
+        {data ? (
+          <>
         <div className="grid gap-3 md:grid-cols-4">
           <Metric label="Locataires actifs" value={summary.activeTenants.toString()} />
           <Metric label="Locataires en retard" value={summary.lateTenants.toString()} />
@@ -255,9 +257,11 @@ function LocatairesContent() {
             </div>
           </div>
         </section>
+          </>
+        ) : null}
       </section>
 
-      {selectedTenant ? (
+      {data && selectedTenant ? (
         <TenantDrawer
           activeTab={activeTab}
           onClose={() => setSelectedTenantId(null)}
@@ -270,7 +274,7 @@ function LocatairesContent() {
         />
       ) : null}
 
-      {editingTenant ? (
+      {data && editingTenant ? (
         <TenantFormModal
           tenant={editingTenant}
           onCancel={() => setEditingTenant(null)}
@@ -278,17 +282,19 @@ function LocatairesContent() {
         />
       ) : null}
 
-      {showCreateTenantModal ? (
+      {data && showCreateTenantModal ? (
         <NewTenantModal
+          error={newTenantError}
           form={newTenantForm}
           onCancel={() => setShowCreateTenantModal(false)}
           onChange={setNewTenantForm}
           onSave={saveNewTenant}
+          saving={newTenantSaving}
           store={snapshotStore}
         />
       ) : null}
 
-      {tenantToDelete ? (
+      {data && tenantToDelete ? (
         <ConfirmModal
           title="Archiver le locataire ?"
           message="Voulez-vous vraiment archiver ce locataire ? Ses baux actifs seront terminés, le logement deviendra vacant et l'historique sera conservé."
@@ -355,7 +361,7 @@ function TenantDrawer({
           {tenantTabs.map((tab) => (
             <button
               key={tab.value}
-              className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                 activeTab === tab.value
                   ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white"
                   : "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)] hover:text-[var(--foreground)]"
@@ -363,6 +369,7 @@ function TenantDrawer({
               onClick={() => onTabChange(tab.value)}
               type="button"
             >
+              <AppIcon name={getTenantDrawerTabIcon(tab.value)} size={15} />
               {tab.label}
             </button>
           ))}
@@ -409,6 +416,18 @@ function TenantDrawer({
   );
 }
 
+function getTenantDrawerTabIcon(tab: TenantDrawerTab): IconName {
+  const icons: Record<TenantDrawerTab, IconName> = {
+    resume: "layout-dashboard",
+    bail: "file-text",
+    paiements: "credit-card",
+    documents: "folder-open",
+    historique: "history",
+    notes: "sticky-note",
+  };
+  return icons[tab];
+}
+
 function TenantSummaryTab({
   onDataChanged,
   occupancy,
@@ -433,6 +452,7 @@ function TenantSummaryTab({
       <InfoCard label="Logement" value={occupancy?.unitName ?? "Aucun logement"} />
       <InfoCard label="Loyer" value={occupancy ? `${currency.format(occupancy.monthlyRent)} / mois` : "—"} />
       <InfoCard label="Statut paiement" value={rentStatus.label} />
+      <TenantPortalAccessPanel tenant={tenant} />
       <TaskComposer
         compact
         onChanged={onDataChanged}
@@ -443,6 +463,139 @@ function TenantSummaryTab({
         unitId={unit?.id}
       />
     </div>
+  );
+}
+
+function TenantPortalAccessPanel({ tenant }: { tenant: Tenant }) {
+  const [activationUrl, setActivationUrl] = useState("");
+  const [email, setEmail] = useState(tenant.email);
+  const [invitation, setInvitation] = useState<TenantPortalInvitation | null>(null);
+  const [message, setMessage] = useState("");
+  const [status, setStatus] = useState("Chargement...");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    const resetTimer = window.setTimeout(() => {
+      if (ignore) {
+        return;
+      }
+
+      setEmail(tenant.email);
+      setActivationUrl("");
+      setMessage("");
+      setStatus("Chargement...");
+      setInvitation(null);
+    }, 0);
+
+    getTenantPortalAccessForTenant(tenant.id)
+      .then((access) => {
+        if (ignore) {
+          return;
+        }
+
+        setStatus(access.accountStatus);
+        setInvitation(access.invitation);
+      })
+      .catch((error) => {
+        if (ignore) {
+          return;
+        }
+
+        console.error("Impossible de charger l'accès portail locataire.", error);
+        setStatus("Non invité");
+      });
+
+    return () => {
+      ignore = true;
+      window.clearTimeout(resetTimer);
+    };
+  }, [tenant.email, tenant.id]);
+
+  async function inviteTenant() {
+    if (!email.trim()) {
+      setMessage("Ajoutez un courriel avant d'envoyer l'invitation.");
+      return;
+    }
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const result = await createTenantPortalInvitation(tenant, email);
+      const absoluteUrl = typeof window !== "undefined" ? `${window.location.origin}${result.activationUrl}` : result.activationUrl;
+
+      setActivationUrl(absoluteUrl);
+      setInvitation(result.invitation);
+      setStatus("Invitation envoyée");
+      setMessage("Invitation préparée. Copiez le lien de développement si aucun courriel n'est envoyé automatiquement.");
+    } catch (error) {
+      console.error("Impossible d'inviter le locataire au portail.", error);
+      setMessage("Impossible de créer l'invitation au portail.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function disableAccess() {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      await disableTenantPortalAccess(tenant.id);
+      setStatus("Non invité");
+      setMessage("Accès locataire désactivé.");
+    } catch (error) {
+      console.error("Impossible de désactiver l'accès portail locataire.", error);
+      setMessage("Impossible de désactiver l'accès locataire.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function copyInvitationUrl() {
+    if (!activationUrl) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(activationUrl);
+    setMessage("Lien copié.");
+  }
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase text-[var(--muted)]">Portail locataire</p>
+          <p className="mt-1 font-semibold text-[var(--foreground)]">{status}</p>
+          {invitation ? <p className="mt-1 text-xs text-[var(--muted)]">Invitation: {invitation.email}</p> : null}
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2">
+        <input
+          className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
+          placeholder="courriel@exemple.com"
+          type="email"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+        <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={loading} onClick={inviteTenant} type="button">
+          {status === "Invitation envoyée" ? "Renvoyer l’invitation" : "Inviter au portail"}
+        </button>
+        {status === "Actif" ? (
+          <button className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" disabled={loading} onClick={disableAccess} type="button">
+            Désactiver l’accès
+          </button>
+        ) : null}
+        {activationUrl ? (
+          <button className="btn-secondary text-left text-xs" onClick={copyInvitationUrl} type="button">
+            Copier le lien de développement
+          </button>
+        ) : null}
+      </div>
+      {activationUrl ? <p className="mt-2 break-all text-xs text-[var(--muted)]">{activationUrl}</p> : null}
+      {message ? <p className="mt-2 text-xs text-[var(--muted)]">{message}</p> : null}
+    </section>
   );
 }
 
@@ -548,16 +701,20 @@ function TenantHistoryTab({ activities, store }: { activities: LocalStore["activ
 }
 
 function NewTenantModal({
+  error,
   form,
   onCancel,
   onChange,
   onSave,
+  saving,
   store,
 }: {
+  error: string;
   form: NewTenantForm;
   onCancel: () => void;
   onChange: (form: NewTenantForm) => void;
   onSave: () => void;
+  saving: boolean;
   store: LocalStore;
 }) {
   const selectedProperty = store.properties.find((property) => property.id === form.propertyId) ?? null;
@@ -659,13 +816,14 @@ function NewTenantModal({
         )}
 
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-          <button className="btn-secondary" onClick={onCancel} type="button">
+          <button className="btn-secondary" disabled={saving} onClick={onCancel} type="button">
             Annuler
           </button>
-          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-40" disabled={!canSave} onClick={onSave} type="button">
-            Enregistrer le locataire
+          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-40" disabled={!canSave || saving} onClick={onSave} type="button">
+            {saving ? "Enregistrement…" : "Enregistrer le locataire"}
           </button>
         </div>
+        {error ? <p className="mt-4 text-sm font-semibold text-[color:var(--red)]" role="alert">{error}</p> : null}
       </div>
     </div>
   );

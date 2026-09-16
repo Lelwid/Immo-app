@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { AuthCard } from "@/components/AuthCard";
 
 export default function MotDePasseOubliePage() {
-  return <AuthCard mode="reset" />;
+  return (
+    <Suspense fallback={null}>
+      <AuthCard mode="reset" />
+    </Suspense>
+  );
 }

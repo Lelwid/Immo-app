@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
 import { NotesPanel } from "@/components/NotesPanel";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { addActivityToStore } from "@/lib/data/activityStore";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
@@ -11,7 +13,6 @@ import {
   deleteMaintenanceRequest,
   updateMaintenanceRequest,
 } from "@/lib/data/maintenanceService";
-import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import {
   getPropertyName,
   getTenantName,
@@ -26,12 +27,12 @@ type TicketForm = Omit<MaintenanceTicket, "id">;
 type TicketFilter = "all" | "open" | "inProgress" | "resolved" | "urgent";
 type TicketModalMode = "create" | "edit";
 
-const filters: { label: string; value: TicketFilter }[] = [
-  { label: "Toutes", value: "all" },
-  { label: "Ouvertes", value: "open" },
-  { label: "En cours", value: "inProgress" },
-  { label: "Fermées", value: "resolved" },
-  { label: "Urgentes", value: "urgent" },
+const filters: { icon: IconName; label: string; value: TicketFilter }[] = [
+  { icon: "list", label: "Toutes", value: "all" },
+  { icon: "circle-dashed", label: "Ouvertes", value: "open" },
+  { icon: "clock", label: "En cours", value: "inProgress" },
+  { icon: "circle-check", label: "Fermées", value: "resolved" },
+  { icon: "circle-alert", label: "Urgentes", value: "urgent" },
 ];
 
 const priorityClasses: Record<TicketPriority, string> = {
@@ -48,11 +49,9 @@ const statusClasses: Record<TicketStatus, string> = {
 };
 
 export default function EntretienPage() {
-  const { store, setStore } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
-  const snapshotStore = snapshot ?? store;
+  const { setStore } = useLocalStore();
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
+  const snapshotStore = data ?? emptyPortfolioStore;
   const firstPropertyId = snapshotStore.properties[0]?.id ?? "";
   const firstUnitId = snapshotStore.units.find((unit) => unit.propertyId === firstPropertyId)?.id ?? "";
   const [activeFilter, setActiveFilter] = useState<TicketFilter>("all");
@@ -82,43 +81,11 @@ export default function EntretienPage() {
   const availableUnits = snapshotStore.units.filter((unit) => unit.propertyId === ticketForm.propertyId);
   const relatedActivities = selectedTicket ? getRelatedActivities(selectedTicket, snapshotStore.activities) : [];
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger les demandes d'entretien.", error);
-        if (active) {
-          setSnapshotError("Impossible de charger les demandes d'entretien. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   async function refreshEntretienSnapshot() {
     try {
-      const nextSnapshot = await refreshSnapshot();
-      setSnapshot(nextSnapshot);
-      setSnapshotError("");
+      await refreshSnapshot();
     } catch (error) {
       console.error("Impossible de rafraîchir les demandes d'entretien.", error);
-      setSnapshotError("Impossible de rafraîchir les demandes d'entretien. Les données locales sont affichées.");
     }
   }
 
@@ -329,12 +296,27 @@ export default function EntretienPage() {
       description="Suivez les problèmes, réparations et inspections liés aux logements et immeubles."
     >
       <section className="grid gap-5">
+        {!data ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+            <p className="text-sm font-semibold text-[var(--muted)]">
+              {snapshotLoading ? "Chargement des demandes d'entretien..." : "Impossible de charger les données du portefeuille."}
+            </p>
+            {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+            {snapshotError ? (
+              <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+                Réessayer
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+        {data ? (
+        <>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-2">
             {filters.map((filter) => (
               <button
                 key={filter.value}
-                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-semibold transition ${
                   activeFilter === filter.value
                     ? "border-[color:var(--accent)] bg-[color:var(--accent)] text-white"
                     : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[color:var(--accent)] hover:text-[var(--foreground)]"
@@ -342,7 +324,8 @@ export default function EntretienPage() {
                 onClick={() => setActiveFilter(filter.value)}
                 type="button"
               >
-                {filter.label}
+                <AppIcon name={filter.icon} size={16} />
+                <span>{filter.label}</span>
               </button>
             ))}
           </div>
@@ -457,6 +440,8 @@ export default function EntretienPage() {
             onCancel={() => setTicketToDelete(null)}
             onConfirm={() => deleteTicket(ticketToDelete.id)}
           />
+        ) : null}
+        </>
         ) : null}
       </section>
     </RouteShell>

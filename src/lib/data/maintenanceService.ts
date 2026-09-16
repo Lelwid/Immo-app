@@ -221,11 +221,13 @@ function fromSupabaseRow(row: SupabaseMaintenanceRow): MaintenanceTicket {
     id: row.id,
     propertyId: row.property_id,
     unitId: row.unit_id ?? "",
+    tenantId: row.tenant_id,
     title: row.title,
     description: row.description ?? "",
     priority: normalizePriority(row.priority),
     status: normalizeStatus(row.status),
     createdAt: reportedAt.slice(0, 10),
+    completedAt: row.completed_at,
   };
 }
 

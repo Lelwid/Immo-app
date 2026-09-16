@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { LeaseTerminationModal } from "@/components/LeaseTerminationModal";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getActiveLeaseForUnit, getUnitOccupancy } from "@/lib/data/leaseAdapters";
 import { endActiveLeaseForUnit, saveLeaseForUnit, type LeaseTerminationWorkflowInput } from "@/lib/data/leaseAssignmentService";
-import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { currency, getPropertyDashboards, paymentStatusLabel, renewalStatusLabel } from "@/lib/mockData";
 import type { Lease, Unit } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
@@ -13,15 +13,18 @@ import { useLocalStore } from "@/lib/useLocalStore";
 type LeaseForm = Pick<Unit, "tenantId" | "monthlyRent" | "leaseStartDate" | "leaseEndDate" | "paymentStatus" | "notes">;
 
 export default function BauxPage() {
-  const { store, setStore } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const snapshotStore = snapshot ?? store;
+  const { setStore } = useLocalStore();
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
+  const snapshotStore = data ?? emptyPortfolioStore;
   const properties = useMemo(() => getPropertyDashboards(snapshotStore), [snapshotStore]);
   const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
   const [showLeaseModal, setShowLeaseModal] = useState(false);
   const [terminatingLease, setTerminatingLease] = useState<{ lease: Lease; unit: Unit } | null>(null);
   const [leaseTerminationError, setLeaseTerminationError] = useState("");
   const [leaseTerminationSaving, setLeaseTerminationSaving] = useState(false);
+  const [leaseSaving, setLeaseSaving] = useState(false);
+  const [leaseSaveError, setLeaseSaveError] = useState("");
+  const leaseSaveInFlightRef = useRef(false);
   const [leaseForm, setLeaseForm] = useState<LeaseForm>({
     tenantId: null,
     monthlyRent: 0,
@@ -31,27 +34,9 @@ export default function BauxPage() {
     notes: "",
   });
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (active) {
-          setSnapshot(nextSnapshot);
-        }
-      })
-      .catch((error) => {
-        console.error("Impossible de charger les baux.", error);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   async function refreshBauxSnapshot() {
     try {
-      setSnapshot(await refreshSnapshot());
+      await refreshSnapshot();
     } catch (error) {
       console.error("Impossible de rafraîchir les baux.", error);
     }
@@ -106,7 +91,7 @@ export default function BauxPage() {
   }
 
   async function saveLease() {
-    if (!editingUnitId) {
+    if (!editingUnitId || leaseSaveInFlightRef.current) {
       return;
     }
 
@@ -127,18 +112,30 @@ export default function BauxPage() {
       }
     }
 
-    setStore(await saveLeaseForUnit(snapshotStore, {
-      unitId: editingUnitId,
-      tenantId: leaseForm.tenantId,
-      monthlyRent: leaseForm.monthlyRent,
-      leaseStartDate: leaseForm.leaseStartDate,
-      leaseEndDate: leaseForm.leaseEndDate,
-      paymentStatus: leaseForm.paymentStatus,
-      notes: leaseForm.notes,
-    }));
-    await refreshBauxSnapshot();
-    setEditingUnitId(null);
-    setShowLeaseModal(false);
+    leaseSaveInFlightRef.current = true;
+    setLeaseSaving(true);
+    setLeaseSaveError("");
+
+    try {
+      setStore(await saveLeaseForUnit(snapshotStore, {
+        unitId: editingUnitId,
+        tenantId: leaseForm.tenantId,
+        monthlyRent: leaseForm.monthlyRent,
+        leaseStartDate: leaseForm.leaseStartDate,
+        leaseEndDate: leaseForm.leaseEndDate,
+        paymentStatus: leaseForm.paymentStatus,
+        notes: leaseForm.notes,
+      }));
+      await refreshBauxSnapshot();
+      setEditingUnitId(null);
+      setShowLeaseModal(false);
+    } catch (error) {
+      console.error("Impossible d'enregistrer le bail.", error);
+      setLeaseSaveError("Impossible d’enregistrer le bail. Réessayez.");
+    } finally {
+      leaseSaveInFlightRef.current = false;
+      setLeaseSaving(false);
+    }
   }
 
   function cancelLeaseEdit() {
@@ -152,7 +149,21 @@ export default function BauxPage() {
       description="Suivi et modification des baux actifs, loyers, échéances et statuts de paiement par immeuble."
     >
       <section className="grid gap-5">
-        <div className="grid gap-5">
+        {!data ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+            <p className="text-sm font-semibold text-[var(--muted)]">
+              {snapshotLoading ? "Chargement des baux..." : "Impossible de charger les données du portefeuille."}
+            </p>
+            {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+            {snapshotError ? (
+              <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+                Réessayer
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
+        {data ? <div className="grid gap-5">
           {properties.map((property) => (
             <article key={property.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
               <h2 className="text-xl font-semibold text-[var(--foreground)]">{property.name}</h2>
@@ -201,7 +212,7 @@ export default function BauxPage() {
               </div>
             </article>
           ))}
-        </div>
+        </div> : null}
 
         <aside className="hidden">
           <h2 className="text-lg font-semibold text-[var(--foreground)]">
@@ -263,10 +274,11 @@ export default function BauxPage() {
                 <button className="btn-secondary" onClick={cancelLeaseEdit} type="button">
                   Annuler
                 </button>
-                <button className="btn-primary" onClick={saveLease} type="button">
-                  Enregistrer le bail
+                <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={leaseSaving} onClick={saveLease} type="button">
+                  {leaseSaving ? "Enregistrement…" : "Enregistrer le bail"}
                 </button>
               </div>
+              {leaseSaveError ? <p className="text-sm font-semibold text-[color:var(--red)]" role="alert">{leaseSaveError}</p> : null}
             </div>
           </FormModal>
         ) : null}

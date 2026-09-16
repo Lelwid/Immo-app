@@ -106,6 +106,24 @@ button {
   background: transparent;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .page-route-transition {
+    animation: habixa-page-enter 150ms ease-out both;
+  }
+
+  @keyframes habixa-page-enter {
+    from {
+      opacity: 0.86;
+      transform: translateY(4px);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
 @layer components {
   .btn-primary {
     @apply rounded-md border px-3 py-2 text-sm font-semibold;

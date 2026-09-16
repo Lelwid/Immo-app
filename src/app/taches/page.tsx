@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
 import { TaskComposer } from "@/components/TaskComposer";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { addActivityToStore } from "@/lib/data/activityStore";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
-import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { completeTask, deleteTask as deleteTaskRecord, updateTask } from "@/lib/data/tasksService";
 import { getPropertyName, getTenantName, getUnitLabel } from "@/lib/mockData";
 import type { AppTask, LocalStore, TaskPriority } from "@/lib/types";
@@ -15,11 +16,11 @@ import { useLocalStore } from "@/lib/useLocalStore";
 type TaskFilter = "toutes" | "aujourdhui" | "retard" | "priorite";
 type TaskForm = Pick<AppTask, "title" | "description" | "priority" | "dueDate" | "propertyId" | "unitId" | "tenantId">;
 
-const filters: { label: string; value: TaskFilter }[] = [
-  { label: "Toutes", value: "toutes" },
-  { label: "Aujourd'hui", value: "aujourdhui" },
-  { label: "En retard", value: "retard" },
-  { label: "Priorité élevée", value: "priorite" },
+const filters: { icon: IconName; label: string; value: TaskFilter }[] = [
+  { icon: "list", label: "Toutes", value: "toutes" },
+  { icon: "clock", label: "Aujourd'hui", value: "aujourdhui" },
+  { icon: "circle-alert", label: "En retard", value: "retard" },
+  { icon: "list-checks", label: "Priorité élevée", value: "priorite" },
 ];
 
 const priorityClasses: Record<TaskPriority, string> = {
@@ -29,11 +30,9 @@ const priorityClasses: Record<TaskPriority, string> = {
 };
 
 export default function TachesPage() {
-  const { store, setStore } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
-  const snapshotStore = snapshot ?? store;
+  const { setStore } = useLocalStore();
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
+  const snapshotStore = data ?? emptyPortfolioStore;
   const [activeFilter, setActiveFilter] = useState<TaskFilter>("toutes");
   const [editingTask, setEditingTask] = useState<AppTask | null>(null);
   const [taskToDelete, setTaskToDelete] = useState<AppTask | null>(null);
@@ -41,43 +40,11 @@ export default function TachesPage() {
   const todoTasks = filteredTasks.filter((task) => !task.completed);
   const completedTasks = filteredTasks.filter((task) => task.completed);
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger les tâches.", error);
-        if (active) {
-          setSnapshotError("Impossible de charger les tâches. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   async function refreshTasksSnapshot() {
     try {
-      const nextSnapshot = await refreshSnapshot();
-      setSnapshot(nextSnapshot);
-      setSnapshotError("");
+      await refreshSnapshot();
     } catch (error) {
       console.error("Impossible de rafraîchir les tâches.", error);
-      setSnapshotError("Impossible de rafraîchir les tâches. Les données locales sont affichées.");
     }
   }
 
@@ -185,6 +152,20 @@ export default function TachesPage() {
 
   return (
     <RouteShell title="Mes tâches" description="Suivez les actions personnelles à faire pour gérer votre portefeuille.">
+      {!data ? (
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <p className="text-sm font-semibold text-[var(--muted)]">
+            {snapshotLoading ? "Chargement des tâches..." : "Impossible de charger les données du portefeuille."}
+          </p>
+          {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+          {snapshotError ? (
+            <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+              Réessayer
+            </button>
+          ) : null}
+        </section>
+      ) : null}
+      {data ? (
       <section className="grid gap-5 xl:grid-cols-[1fr_360px]">
         <div className="grid gap-5">
           <div className="flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
@@ -193,7 +174,7 @@ export default function TachesPage() {
             {filters.map((filter) => (
               <button
                 key={filter.value}
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   activeFilter === filter.value
                     ? "bg-[color:var(--accent)] text-white"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -201,7 +182,8 @@ export default function TachesPage() {
                 onClick={() => setActiveFilter(filter.value)}
                 type="button"
               >
-                {filter.label}
+                <AppIcon name={filter.icon} size={16} />
+                <span>{filter.label}</span>
               </button>
             ))}
           </div>
@@ -231,9 +213,10 @@ export default function TachesPage() {
           <TaskComposer onChanged={refreshTasksSnapshot} storeSource={snapshotStore} title="Nouvelle tâche personnelle" />
         </aside>
       </section>
+      ) : null}
 
-      {editingTask ? <TaskEditModal task={editingTask} store={snapshotStore} onCancel={() => setEditingTask(null)} onSave={saveTask} /> : null}
-      {taskToDelete ? (
+      {data && editingTask ? <TaskEditModal task={editingTask} store={snapshotStore} onCancel={() => setEditingTask(null)} onSave={saveTask} /> : null}
+      {data && taskToDelete ? (
         <ConfirmModal
           onCancel={() => setTaskToDelete(null)}
           onConfirm={() => deleteTask(taskToDelete)}

@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { createDocumentWithFile } from "@/lib/data/documentsService";
+import { documentFileAccept, validateDocumentFile } from "@/lib/fileValidation";
 import { documentTypeLabel, getPropertyName, getUnitLabel } from "@/lib/mockData";
 import type { DocumentRelatedEntityType, DocumentType, LocalStore, PropertyDocument, UnitActivity } from "@/lib/types";
 
-type DocumentForm = Pick<PropertyDocument, "name" | "type" | "propertyId" | "unitId" | "tenantId" | "leaseId" | "relatedEntityType" | "relatedEntityId" | "notes">;
+type DocumentForm = Pick<PropertyDocument, "name" | "type" | "propertyId" | "unitId" | "tenantId" | "leaseId" | "relatedEntityType" | "relatedEntityId" | "notes" | "visibility">;
 
 type RelatedOption = {
   value: string;
@@ -91,6 +92,13 @@ export function DocumentUploadModal({
       return;
     }
 
+    const validationError = validateDocumentFile(selectedFile);
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
     setSaving(true);
     setError(null);
 
@@ -171,12 +179,14 @@ export function DocumentUploadModal({
           <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
             Fichier
             <input
+              accept={documentFileAccept}
               className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none file:mr-3 file:rounded-md file:border-0 file:bg-[color:var(--accent)] file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white"
               disabled={saving}
               type="file"
               onChange={(event) => {
                 const file = event.target.files?.[0] ?? null;
                 setSelectedFile(file);
+                setError(file ? validateDocumentFile(file) : null);
                 if (file && !form.name.trim()) {
                   setForm({ ...form, name: file.name });
                 }
@@ -188,6 +198,16 @@ export function DocumentUploadModal({
             value={form.type}
             onChange={(type) => setForm({ ...form, type: type as DocumentType })}
             options={documentTypes}
+            disabled={saving}
+          />
+          <SelectInput
+            label="Visibilité"
+            value={form.visibility ?? "private"}
+            onChange={(visibility) => setForm({ ...form, visibility: visibility === "tenant" ? "tenant" : "private" })}
+            options={[
+              ["private", "Privé propriétaire"],
+              ["tenant", "Visible dans le portail locataire"],
+            ]}
             disabled={saving}
           />
           {propertyName ? (
@@ -260,6 +280,7 @@ function createEmptyDocumentForm(
   return {
     name: "",
     type,
+    visibility: "private",
     ...getDocumentRelationship(firstOption, relatedEntityType),
   };
 }

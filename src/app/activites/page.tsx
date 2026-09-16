@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import type { KeyboardEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
+import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
-import { loadPortfolioSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { getNotificationItems, getPropertyName, getTenantName, getUnitLabel } from "@/lib/mockData";
 import type { ActivityType, LocalStore, UnitActivity } from "@/lib/types";
-import { useLocalStore } from "@/lib/useLocalStore";
 
 type ActivityFilter = "tous" | ActivityType;
 type TimelineType = ActivityType | "notification" | "calendrier";
@@ -29,13 +29,13 @@ type TimelineActivity = {
   href: string;
 };
 
-const filters: { label: string; value: ActivityFilter }[] = [
-  { label: "Tous", value: "tous" },
-  { label: "Paiements", value: "paiement" },
-  { label: "Baux", value: "bail" },
-  { label: "Demandes d'entretien", value: "entretien" },
-  { label: "Documents", value: "document" },
-  { label: "Immeubles", value: "immeuble" },
+const filters: { icon: IconName; label: string; value: ActivityFilter }[] = [
+  { icon: "list", label: "Tous", value: "tous" },
+  { icon: "credit-card", label: "Paiements", value: "paiement" },
+  { icon: "file-text", label: "Baux", value: "bail" },
+  { icon: "wrench", label: "Demandes d'entretien", value: "entretien" },
+  { icon: "folder-open", label: "Documents", value: "document" },
+  { icon: "building-2", label: "Immeubles", value: "immeuble" },
 ];
 
 const activityTypeLabel: Record<TimelineType, string> = {
@@ -65,56 +65,42 @@ const activityTypeClass: Record<TimelineType, string> = {
 };
 
 export default function ActivitesPage() {
-  const { store } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
   const [activeFilter, setActiveFilter] = useState<ActivityFilter>("tous");
   const [searchQuery, setSearchQuery] = useState("");
-  const snapshotStore = snapshot ?? store;
-  const activities = useMemo(() => getActivities(snapshotStore, activeFilter, searchQuery), [activeFilter, searchQuery, snapshotStore]);
+  const snapshotStore = data;
+  const activities = useMemo(
+    () => (snapshotStore ? getActivities(snapshotStore, activeFilter, searchQuery) : []),
+    [activeFilter, searchQuery, snapshotStore],
+  );
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger le journal d'activité depuis le snapshot.", error);
-        if (active) {
-          setSnapshotError("Impossible de synchroniser le journal d'activité. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  if (!snapshotStore) {
+    return (
+      <RouteShell title="Journal d’activité" description="Historique complet du portefeuille">
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <p className="text-sm font-semibold text-[var(--muted)]">
+            {snapshotLoading ? "Chargement du journal d’activité..." : "Impossible de charger les données du portefeuille."}
+          </p>
+          {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+          {snapshotError ? (
+            <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+              Réessayer
+            </button>
+          ) : null}
+        </section>
+      </RouteShell>
+    );
+  }
 
   return (
     <RouteShell title="Journal d’activité" description="Historique complet du portefeuille">
       <section className="grid gap-5">
-        {snapshotLoading ? <p className="text-sm text-[var(--muted)]">Synchronisation du journal d&apos;activité...</p> : null}
-        {snapshotError ? <p className="text-sm font-semibold text-[color:var(--amber)]">{snapshotError}</p> : null}
-
         <div className="grid gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 lg:grid-cols-[1fr_320px]">
           <div className="flex flex-wrap gap-2">
             {filters.map((filter) => (
               <button
                 key={filter.value}
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   activeFilter === filter.value
                     ? "bg-[color:var(--accent)] text-white"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -122,7 +108,8 @@ export default function ActivitesPage() {
                 onClick={() => setActiveFilter(filter.value)}
                 type="button"
               >
-                {filter.label}
+                <AppIcon name={filter.icon} size={16} />
+                <span>{filter.label}</span>
               </button>
             ))}
           </div>

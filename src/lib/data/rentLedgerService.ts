@@ -487,45 +487,16 @@ async function persistRentLedgerToSupabase(
   transaction: PaymentTransaction,
   allocations: PaymentAllocation[],
 ) {
-  const userId = await getCurrentUserId();
-  const { error: chargeError } = await supabase!
-    .from(rentChargesTable)
-    .upsert(charges.map((charge) => toSupabaseRentCharge(toRentCharge(charge), userId)), {
-      onConflict: "lease_id,period_month",
-    });
+  const { error } = await supabase!.rpc("record_rent_payment", {
+    p_transaction: toSupabasePaymentTransaction(transaction),
+    p_charges: charges.map((charge) => toSupabaseRentCharge(toRentCharge(charge))),
+    p_allocations: allocations.map(toSupabasePaymentAllocation),
+  });
 
-  if (chargeError) {
-    console.error("Impossible de créer les loyers exigibles.", chargeError);
-    throw new Error("Impossible de créer les loyers exigibles.");
-  }
-
-  const { error: transactionError } = await supabase!
-    .from(paymentTransactionsTable)
-    .insert(toSupabasePaymentTransaction(transaction, userId));
-
-  if (transactionError) {
-    console.error("Impossible d'enregistrer le paiement.", transactionError);
-    throw new Error("Impossible d'enregistrer le paiement.");
-  }
-
-  const { error: allocationError } = await supabase!
-    .from(paymentAllocationsTable)
-    .insert(allocations.map((allocation) => toSupabasePaymentAllocation(allocation, userId)));
-
-  if (allocationError) {
-    console.error("Impossible d'appliquer le paiement aux loyers.", allocationError);
+  if (error) {
+    console.error("Impossible d'enregistrer le paiement.", error);
     throw new Error("Impossible d'appliquer le paiement aux loyers.");
   }
-}
-
-async function getCurrentUserId() {
-  const { data, error } = await supabase!.auth.getUser();
-
-  if (error || !data.user?.id) {
-    throw new Error("Impossible d'identifier l'utilisateur.");
-  }
-
-  return data.user.id;
 }
 
 function toChargeRow(
@@ -742,10 +713,9 @@ function fromSupabasePaymentAllocation(row: SupabasePaymentAllocationRow): Payme
   };
 }
 
-function toSupabaseRentCharge(charge: RentCharge, userId: string) {
+function toSupabaseRentCharge(charge: RentCharge) {
   return {
     id: charge.id,
-    user_id: userId,
     property_id: charge.propertyId,
     unit_id: charge.unitId,
     lease_id: charge.leaseId,
@@ -756,10 +726,9 @@ function toSupabaseRentCharge(charge: RentCharge, userId: string) {
   };
 }
 
-function toSupabasePaymentTransaction(transaction: PaymentTransaction, userId: string) {
+function toSupabasePaymentTransaction(transaction: PaymentTransaction) {
   return {
     id: transaction.id,
-    user_id: userId,
     property_id: transaction.propertyId,
     lease_id: transaction.leaseId ?? null,
     tenant_id: transaction.tenantId,
@@ -771,10 +740,9 @@ function toSupabasePaymentTransaction(transaction: PaymentTransaction, userId: s
   };
 }
 
-function toSupabasePaymentAllocation(allocation: PaymentAllocation, userId: string) {
+function toSupabasePaymentAllocation(allocation: PaymentAllocation) {
   return {
     id: allocation.id,
-    user_id: userId,
     transaction_id: allocation.transactionId,
     rent_charge_id: allocation.rentChargeId,
     amount_allocated: allocation.amountAllocated,

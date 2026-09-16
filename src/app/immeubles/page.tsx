@@ -1,13 +1,16 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 import type { KeyboardEvent } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
+import { createManualNormalizedAddress, type NormalizedAddress } from "@/lib/data/addressService";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { addActivityToStore } from "@/lib/data/activityStore";
 import { shouldUseSupabase } from "@/lib/data/dataMode";
-import { clearPortfolioSnapshotCache, loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
+import { clearPortfolioSnapshotCache } from "@/lib/data/portfolioSnapshotService";
 import {
   createProperty,
   deleteProperty as deletePropertyRecord,
@@ -20,7 +23,7 @@ import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import type { LocalStore, Property, PropertyDashboard, Unit } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
-type PropertyForm = Omit<Property, "id" | "province"> & {
+type PropertyForm = Omit<Property, "id"> & {
   unitCount: number;
 };
 
@@ -28,7 +31,15 @@ const emptyProperty: PropertyForm = {
   name: "",
   address: "",
   city: "Québec",
+  province: "QC",
+  provinceCode: "QC",
   postalCode: "",
+  country: "Canada",
+  countryCode: "ca",
+  latitude: null,
+  longitude: null,
+  addressProvider: null,
+  addressProviderId: null,
   propertyType: "triplex",
   unitCount: 3,
 };
@@ -43,15 +54,15 @@ const propertyTypeLabel: Record<Property["propertyType"], string> = {
 
 export default function ImmeublesPage() {
   const router = useRouter();
-  const { store, setStore, resetDemoData } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const { setStore, resetDemoData } = useLocalStore();
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
+  const [snapshotSyncError, setSnapshotSyncError] = useState<string | null>(null);
   const [propertyRecords, setPropertyRecords] = useState<Property[] | null>(null);
   const [unitRecords, setUnitRecords] = useState<Unit[] | null>(null);
-  const [isLoadingProperties, setIsLoadingProperties] = useState(true);
   const [isSavingProperty, setIsSavingProperty] = useState(false);
+  const propertySaveInFlightRef = useRef(false);
   const [propertyError, setPropertyError] = useState<string | null>(null);
-  const snapshotStore = snapshot ?? store;
+  const snapshotStore = data ?? emptyPortfolioStore;
   const displayStore = useMemo(
     () => ({
       ...snapshotStore,
@@ -63,60 +74,33 @@ export default function ImmeublesPage() {
   const properties = useMemo(() => getPropertyDashboards(displayStore), [displayStore]);
   const [editingPropertyId, setEditingPropertyId] = useState<string | null>(null);
   const [propertyForm, setPropertyForm] = useState<PropertyForm>(emptyProperty);
+  const [manualAddressMode, setManualAddressMode] = useState(false);
   const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [propertyToDelete, setPropertyToDelete] = useState<PropertyDashboard | null>(null);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [showResetModal, setShowResetModal] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-        setSnapshot(nextSnapshot);
-        setPropertyRecords(nextSnapshot.properties);
-        setUnitRecords(nextSnapshot.units);
-        setSnapshotError(null);
-        setPropertyError(null);
-      })
-      .catch((error: unknown) => {
-        if (!active) {
-          return;
-        }
-        setPropertyError(getErrorMessage(error, "Impossible de charger les immeubles."));
-      })
-      .finally(() => {
-        if (active) {
-          setIsLoadingProperties(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   async function refreshImmeublesSnapshot() {
     try {
       const nextSnapshot = await refreshSnapshot();
-      setSnapshot(nextSnapshot);
+      if (!nextSnapshot) {
+        return;
+      }
       setPropertyRecords(nextSnapshot.properties);
       setUnitRecords(nextSnapshot.units);
-      setSnapshotError(null);
+      setSnapshotSyncError(null);
     } catch (error) {
-      console.error("Impossible de rafraÃ®chir les immeubles.", error);
-      setSnapshotError("Impossible de synchroniser les immeubles. Les donnÃ©es locales sont affichÃ©es.");
+      console.error("Impossible de rafraîchir les immeubles.", error);
+      setSnapshotSyncError("Impossible de synchroniser les immeubles.");
     }
   }
 
   async function submitProperty() {
-    if (!propertyForm.name.trim() || !propertyForm.address.trim()) {
+    if (propertySaveInFlightRef.current || !propertyForm.name.trim() || !propertyForm.address.trim()) {
       return;
     }
 
+    propertySaveInFlightRef.current = true;
     setIsSavingProperty(true);
     setPropertyError(null);
 
@@ -179,6 +163,7 @@ export default function ImmeublesPage() {
     } catch (error: unknown) {
       setPropertyError(getErrorMessage(error, editingPropertyId ? "Impossible de modifier l’immeuble." : "Impossible de créer l’immeuble."));
     } finally {
+      propertySaveInFlightRef.current = false;
       setIsSavingProperty(false);
     }
   }
@@ -188,24 +173,56 @@ export default function ImmeublesPage() {
     setPropertyForm({
       name: property.name,
       address: property.address,
+      addressLine1: property.addressLine1,
+      streetNumber: property.streetNumber,
+      street: property.street,
       city: property.city,
+      district: property.district,
+      province: property.province || property.provinceCode || "QC",
+      provinceCode: property.provinceCode,
       postalCode: property.postalCode,
+      country: property.country || "Canada",
+      countryCode: property.countryCode || "ca",
+      latitude: property.latitude ?? null,
+      longitude: property.longitude ?? null,
+      addressProvider: property.addressProvider ?? null,
+      addressProviderId: property.addressProviderId ?? null,
       propertyType: property.propertyType,
       unitCount: Math.max(5, displayStore.units.filter((unit) => unit.propertyId === property.id).length),
     });
+    setManualAddressMode(property.addressProvider === "manual" || !property.addressProvider);
     setShowPropertyForm(true);
   }
 
   function openCreatePropertyModal() {
     setEditingPropertyId(null);
     setPropertyForm(emptyProperty);
+    setManualAddressMode(false);
     setShowPropertyForm(true);
   }
 
   function closePropertyForm() {
     setEditingPropertyId(null);
     setPropertyForm(emptyProperty);
+    setManualAddressMode(false);
     setShowPropertyForm(false);
+  }
+
+  function selectAddress(address: NormalizedAddress) {
+    setPropertyForm((current) => applyAddressToPropertyForm(current, address));
+    setManualAddressMode(false);
+  }
+
+  function updateManualAddress(nextForm: PropertyForm) {
+    const manualAddress = createManualNormalizedAddress({
+      address: nextForm.address,
+      city: nextForm.city,
+      province: nextForm.province || nextForm.provinceCode || "QC",
+      postalCode: nextForm.postalCode,
+      country: nextForm.country || "Canada",
+    });
+
+    setPropertyForm(applyAddressToPropertyForm(nextForm, manualAddress));
   }
 
   function openDeleteModal(property: PropertyDashboard) {
@@ -275,8 +292,7 @@ export default function ImmeublesPage() {
   function confirmDemoReset() {
     const nextStore = resetDemoData();
     clearPortfolioSnapshotCache();
-    setSnapshot(null);
-    setSnapshotError(null);
+    setSnapshotSyncError(null);
     setPropertyRecords(nextStore.properties);
     setUnitRecords(nextStore.units);
     setEditingPropertyId(null);
@@ -295,7 +311,7 @@ export default function ImmeublesPage() {
               Sélectionnez un immeuble pour consulter ses logements, finances, documents et historique.
             </p>
           </div>
-          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={isSavingProperty} onClick={openCreatePropertyModal} type="button">
+          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={isSavingProperty || !data} onClick={openCreatePropertyModal} type="button">
             Ajouter un immeuble
           </button>
         </div>
@@ -310,10 +326,15 @@ export default function ImmeublesPage() {
             {snapshotError}
           </div>
         ) : null}
+        {snapshotSyncError ? (
+          <div className="rounded-lg border border-[color:var(--yellow)]/40 bg-[color:var(--yellow)]/10 p-4 text-sm font-medium text-[color:var(--yellow)]">
+            {snapshotSyncError}
+          </div>
+        ) : null}
 
-        {isLoadingProperties ? (
+        {!data ? (
           <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-sm text-[var(--muted)]">
-            Chargement des immeubles...
+            {snapshotLoading ? "Chargement des immeubles..." : "Impossible de charger les données du portefeuille."}
           </div>
         ) : properties.length > 0 ? (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -338,9 +359,32 @@ export default function ImmeublesPage() {
         <FormModal title={editingPropertyId ? "Modifier l'immeuble" : "Ajouter un immeuble"} onCancel={closePropertyForm}>
           <div className="grid gap-3">
             <TextInput label="Nom" value={propertyForm.name} onChange={(name) => setPropertyForm({ ...propertyForm, name })} />
-            <TextInput label="Adresse" value={propertyForm.address} onChange={(address) => setPropertyForm({ ...propertyForm, address })} />
-            <TextInput label="Ville" value={propertyForm.city} onChange={(city) => setPropertyForm({ ...propertyForm, city })} />
-            <TextInput label="Code postal" value={propertyForm.postalCode} onChange={(postalCode) => setPropertyForm({ ...propertyForm, postalCode })} />
+            <AddressAutocomplete
+              disabled={isSavingProperty}
+              manualMode={manualAddressMode}
+              onChange={(address) =>
+                manualAddressMode
+                  ? updateManualAddress({ ...propertyForm, address })
+                  : setPropertyForm({ ...propertyForm, address, addressProvider: null, addressProviderId: null })
+              }
+              onManualModeChange={setManualAddressMode}
+              onSelect={selectAddress}
+              value={propertyForm.address}
+            />
+            {manualAddressMode ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <TextInput label="Ville" value={propertyForm.city} onChange={(city) => updateManualAddress({ ...propertyForm, city })} />
+                <TextInput
+                  label="Province"
+                  value={propertyForm.province || propertyForm.provinceCode || ""}
+                  onChange={(province) => updateManualAddress({ ...propertyForm, province, provinceCode: province })}
+                />
+                <TextInput label="Code postal" value={propertyForm.postalCode} onChange={(postalCode) => updateManualAddress({ ...propertyForm, postalCode })} />
+                <TextInput label="Pays" value={propertyForm.country || "Canada"} onChange={(country) => updateManualAddress({ ...propertyForm, country })} />
+              </div>
+            ) : (
+              <AddressSummary property={propertyForm} />
+            )}
             <SelectInput
               label="Type"
               value={propertyForm.propertyType}
@@ -498,14 +542,64 @@ function EmptyPortfolioState({
   );
 }
 
-function toPropertyData(propertyForm: PropertyForm): Omit<Property, "id" | "province"> {
+function toPropertyData(propertyForm: PropertyForm): Omit<Property, "id"> {
   return {
     name: propertyForm.name,
     address: propertyForm.address,
+    addressLine1: propertyForm.addressLine1 || propertyForm.address,
+    streetNumber: propertyForm.streetNumber,
+    street: propertyForm.street,
     city: propertyForm.city,
+    district: propertyForm.district,
+    province: propertyForm.province || propertyForm.provinceCode || "QC",
+    provinceCode: propertyForm.provinceCode,
     postalCode: propertyForm.postalCode,
+    country: propertyForm.country,
+    countryCode: propertyForm.countryCode,
+    latitude: propertyForm.latitude ?? null,
+    longitude: propertyForm.longitude ?? null,
+    addressProvider: propertyForm.addressProvider,
+    addressProviderId: propertyForm.addressProviderId,
     propertyType: propertyForm.propertyType,
   };
+}
+
+function applyAddressToPropertyForm(form: PropertyForm, address: NormalizedAddress): PropertyForm {
+  return {
+    ...form,
+    address: address.formattedAddress,
+    addressLine1: address.formattedAddress,
+    streetNumber: address.streetNumber,
+    street: address.street,
+    city: address.city || form.city,
+    district: address.district,
+    province: address.province || address.provinceCode || form.province || "QC",
+    provinceCode: address.provinceCode || form.provinceCode || "QC",
+    postalCode: address.postalCode,
+    country: address.country || "Canada",
+    countryCode: address.countryCode || "ca",
+    latitude: address.latitude,
+    longitude: address.longitude,
+    addressProvider: address.provider,
+    addressProviderId: address.providerPlaceId,
+  };
+}
+
+function AddressSummary({ property }: { property: PropertyForm }) {
+  if (!property.address || !property.addressProvider) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">
+      <p className="font-semibold text-[var(--foreground)]">{property.street || property.address}</p>
+      <p>
+        {[property.city, property.provinceCode || property.province].filter(Boolean).join(", ")}
+        {property.postalCode ? ` ${property.postalCode}` : ""}
+      </p>
+      <p>{property.country || "Canada"}</p>
+    </div>
+  );
 }
 
 function getDefaultUnitCount(propertyType: Property["propertyType"]) {

@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
 import { DocumentFileActions } from "@/components/DocumentFileActions";
 import { DocumentUploadModal } from "@/components/DocumentUploadModal";
 import { LeaseTerminationModal } from "@/components/LeaseTerminationModal";
 import { NotesPanel } from "@/components/NotesPanel";
 import { TaskComposer } from "@/components/TaskComposer";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { addActivityToStore } from "@/lib/data/activityStore";
 import { getActiveLeaseForUnit, getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
 import {
@@ -17,7 +19,6 @@ import {
   type LeaseTerminationWorkflowInput,
 } from "@/lib/data/leaseAssignmentService";
 import { getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
-import { loadPortfolioSnapshot, refreshSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import {
   currency,
   documentTypeLabel,
@@ -48,15 +49,15 @@ type UnitTenantForm = {
   notes: string;
 };
 
-const tabs: { value: PropertyTab; label: string }[] = [
-  { value: "resume", label: "Résumé" },
-  { value: "logements", label: "Logements" },
-  { value: "locataires", label: "Locataires" },
-  { value: "finances", label: "Finances" },
-  { value: "entretien", label: "Demandes d'entretien" },
-  { value: "documents", label: "Documents" },
-  { value: "historique", label: "Historique" },
-  { value: "notes", label: "Notes" },
+const tabs: { value: PropertyTab; label: string; icon: IconName }[] = [
+  { value: "resume", label: "Résumé", icon: "layout-dashboard" },
+  { value: "logements", label: "Logements", icon: "door-open" },
+  { value: "locataires", label: "Locataires", icon: "users" },
+  { value: "finances", label: "Finances", icon: "wallet-cards" },
+  { value: "entretien", label: "Demandes d'entretien", icon: "wrench" },
+  { value: "documents", label: "Documents", icon: "folder-open" },
+  { value: "historique", label: "Historique", icon: "history" },
+  { value: "notes", label: "Notes", icon: "sticky-note" },
 ];
 
 const healthLabel: Record<Health, string> = {
@@ -67,10 +68,8 @@ const healthLabel: Record<Health, string> = {
 
 export default function PropertyDetailsPage() {
   const params = useParams<{ id: string }>();
-  const { store, setStore } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
+  const { setStore } = useLocalStore();
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
   const [activeTab, setActiveTab] = useState<PropertyTab>("resume");
   const [selectedUnit, setSelectedUnit] = useState<UnitDashboard | null>(null);
   const [unitDrawerTab, setUnitDrawerTab] = useState<UnitDrawerTab>("resume");
@@ -82,45 +81,13 @@ export default function PropertyDetailsPage() {
   const [tenantRemovalUnit, setTenantRemovalUnit] = useState<UnitDashboard | null>(null);
   const [leaseTerminationError, setLeaseTerminationError] = useState("");
   const [leaseTerminationSaving, setLeaseTerminationSaving] = useState(false);
-  const snapshotStore = snapshot ?? store;
-
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger l'immeuble depuis le snapshot.", error);
-        if (active) {
-          setSnapshotError("Impossible de synchroniser l'immeuble. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const snapshotStore = data ?? emptyPortfolioStore;
 
   async function refreshPropertySnapshot() {
     try {
-      const nextSnapshot = await refreshSnapshot();
-      setSnapshot(nextSnapshot);
-      setSnapshotError("");
+      await refreshSnapshot();
     } catch (error) {
       console.error("Impossible de rafraîchir l'immeuble.", error);
-      setSnapshotError("Impossible de rafraîchir l'immeuble. Les données locales sont affichées.");
     }
   }
 
@@ -145,6 +112,24 @@ export default function PropertyDetailsPage() {
     () => getPropertyActivities(params.id, snapshotStore, 50),
     [params.id, snapshotStore],
   );
+
+  if (!data) {
+    return (
+      <RouteShell title="Chargement de l'immeuble" description="Préparation des données de l'immeuble.">
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <p className="text-sm font-semibold text-[var(--muted)]">
+            {snapshotLoading ? "Chargement de l'immeuble..." : "Impossible de charger les données du portefeuille."}
+          </p>
+          {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+          {snapshotError ? (
+            <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+              Réessayer
+            </button>
+          ) : null}
+        </section>
+      </RouteShell>
+    );
+  }
 
   if (!property) {
     return (
@@ -271,7 +256,7 @@ export default function PropertyDetailsPage() {
           {tabs.map((tab) => (
             <button
               key={tab.value}
-              className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
                 activeTab === tab.value
                   ? "bg-[color:var(--accent)] text-white"
                   : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -279,7 +264,8 @@ export default function PropertyDetailsPage() {
               onClick={() => setActiveTab(tab.value)}
               type="button"
             >
-              {tab.label}
+              <AppIcon name={tab.icon} size={16} />
+              <span>{tab.label}</span>
             </button>
           ))}
         </div>
@@ -611,7 +597,8 @@ function UnitDrawer({
       <div className="grid grid-cols-2 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1 sm:grid-cols-3">
         {(["resume", "bail", "paiements", "historique", "documents", "notes"] as UnitDrawerTab[]).map((tab) => (
           <TabButton key={tab} active={activeTab === tab} onClick={() => onTabChange(tab)}>
-            {tab === "resume" ? "Résumé" : tab === "paiements" ? "Paiements" : tab === "historique" ? "Historique" : tab === "documents" ? "Documents" : tab === "notes" ? "Notes" : "Bail"}
+            <AppIcon name={getUnitDrawerTabIcon(tab)} size={16} />
+            <span>{getUnitDrawerTabLabel(tab)}</span>
           </TabButton>
         ))}
       </div>
@@ -826,7 +813,8 @@ function DocumentDrawer({
       <div className="grid grid-cols-3 gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-1">
         {(["apercu", "informations", "historique"] as DocumentDrawerTab[]).map((tab) => (
           <TabButton key={tab} active={activeTab === tab} onClick={() => onTabChange(tab)}>
-            {tab === "apercu" ? "Aperçu" : tab === "informations" ? "Informations" : "Historique"}
+            <AppIcon name={getDocumentDrawerTabIcon(tab)} size={16} />
+            <span>{getDocumentDrawerTabLabel(tab)}</span>
           </TabButton>
         ))}
       </div>
@@ -855,6 +843,48 @@ function DocumentDrawer({
   );
 }
 
+function getUnitDrawerTabLabel(tab: UnitDrawerTab) {
+  const labels: Record<UnitDrawerTab, string> = {
+    resume: "Résumé",
+    bail: "Bail",
+    paiements: "Paiements",
+    historique: "Historique",
+    documents: "Documents",
+    notes: "Notes",
+  };
+  return labels[tab];
+}
+
+function getUnitDrawerTabIcon(tab: UnitDrawerTab): IconName {
+  const icons: Record<UnitDrawerTab, IconName> = {
+    resume: "layout-dashboard",
+    bail: "file-text",
+    paiements: "credit-card",
+    historique: "history",
+    documents: "folder-open",
+    notes: "sticky-note",
+  };
+  return icons[tab];
+}
+
+function getDocumentDrawerTabLabel(tab: DocumentDrawerTab) {
+  const labels: Record<DocumentDrawerTab, string> = {
+    apercu: "Aperçu",
+    informations: "Informations",
+    historique: "Historique",
+  };
+  return labels[tab];
+}
+
+function getDocumentDrawerTabIcon(tab: DocumentDrawerTab): IconName {
+  const icons: Record<DocumentDrawerTab, IconName> = {
+    apercu: "file-text",
+    informations: "layout-dashboard",
+    historique: "history",
+  };
+  return icons[tab];
+}
+
 function DrawerFrame({ children, onClose, subtitle, title }: { children: React.ReactNode; onClose: () => void; subtitle: string; title: string }) {
   return (
     <div className="fixed inset-0 z-50">
@@ -877,7 +907,7 @@ function DrawerFrame({ children, onClose, subtitle, title }: { children: React.R
 
 function TabButton({ active, children, onClick }: { active: boolean; children: React.ReactNode; onClick: () => void }) {
   return (
-    <button className={`rounded-md px-3 py-2 text-sm font-semibold transition ${active ? "bg-[color:var(--accent)] text-white" : "text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-[var(--foreground)]"}`} onClick={onClick} type="button">
+    <button className={`inline-flex items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${active ? "bg-[color:var(--accent)] text-white" : "text-[var(--muted)] hover:bg-[var(--surface-3)] hover:text-[var(--foreground)]"}`} onClick={onClick} type="button">
       {children}
     </button>
   );

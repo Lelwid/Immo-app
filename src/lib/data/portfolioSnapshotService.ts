@@ -111,10 +111,7 @@ async function fetchPortfolioSnapshot(): Promise<PortfolioSnapshot> {
       tasks,
     });
   } catch (error) {
-    console.error("Impossible de charger l'instantané du portefeuille.", {
-      cause: error,
-      message: error instanceof Error ? error.message : String(error),
-    });
+    console.error("Impossible de charger l'instantané du portefeuille.", serializeSnapshotError(error));
     throw createPortfolioSnapshotError(error);
   }
 }
@@ -124,9 +121,8 @@ async function loadSnapshotDomain<T>(domain: string, loader: () => Promise<T>): 
     return await loader();
   } catch (error) {
     console.error(`[portfolioSnapshotService] Domaine impossible à charger: ${domain}.`, {
-      cause: (error as Error & { cause?: unknown })?.cause ?? error,
       domain,
-      message: error instanceof Error ? error.message : String(error),
+      ...serializeSnapshotError(error),
     });
     throw createPortfolioDomainError(domain, error);
   }
@@ -145,6 +141,44 @@ function createPortfolioSnapshotError(cause: unknown) {
   const error = new Error(process.env.NODE_ENV === "development" ? `Impossible de charger les données du portefeuille. ${message}` : "Impossible de charger les données du portefeuille.");
   (error as Error & { cause?: unknown }).cause = cause;
   return error;
+}
+
+function serializeSnapshotError(error: unknown) {
+  const cause = error instanceof Error ? (error as Error & { cause?: unknown }).cause : null;
+  const source = isStructuredSupabaseCause(cause) ? cause : isStructuredSupabaseCause(error) ? error : null;
+
+  if (source) {
+    return {
+      message: source.message ?? (error instanceof Error ? error.message : String(error)),
+      code: source.code ?? null,
+      details: source.details ?? null,
+      hint: source.hint ?? null,
+      operation: source.operation,
+      table: source.table,
+      selectedColumns: source.selectedColumns,
+      filters: source.filters,
+    };
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    code: null,
+    details: null,
+    hint: null,
+  };
+}
+
+function isStructuredSupabaseCause(value: unknown): value is {
+  code?: string | null;
+  details?: string | null;
+  filters?: string[];
+  hint?: string | null;
+  message?: string;
+  operation?: string;
+  selectedColumns?: string;
+  table?: string;
+} {
+  return Boolean(value && typeof value === "object" && ("message" in value || "code" in value || "details" in value || "hint" in value));
 }
 
 function normalizeSnapshot(store: LocalStore): PortfolioSnapshot {

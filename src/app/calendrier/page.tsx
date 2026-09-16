@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
+import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
-import { loadPortfolioSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
 import { documentTypeLabel, getPropertyName, getUnitLabel } from "@/lib/mockData";
 import type { LocalStore } from "@/lib/types";
-import { useLocalStore } from "@/lib/useLocalStore";
 
 type CalendarFilter = "tous" | "paiements" | "baux" | "entretien" | "documents";
 type CalendarView = "mois" | "semaine";
@@ -30,12 +30,12 @@ type OperationalEvent = {
   description: string;
 };
 
-const filters: { label: string; value: CalendarFilter }[] = [
-  { label: "Tous", value: "tous" },
-  { label: "Paiements", value: "paiements" },
-  { label: "Baux", value: "baux" },
-  { label: "Demandes d'entretien", value: "entretien" },
-  { label: "Documents", value: "documents" },
+const filters: { icon: IconName; label: string; value: CalendarFilter }[] = [
+  { icon: "list", label: "Tous", value: "tous" },
+  { icon: "credit-card", label: "Paiements", value: "paiements" },
+  { icon: "file-text", label: "Baux", value: "baux" },
+  { icon: "wrench", label: "Demandes d'entretien", value: "entretien" },
+  { icon: "folder-open", label: "Documents", value: "documents" },
 ];
 
 const eventColorClasses: Record<EventColor, string> = {
@@ -53,46 +53,14 @@ const urgencyLabel: Record<EventUrgency, string> = {
 };
 
 export default function CalendrierPage() {
-  const { store } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
   const [activeFilter, setActiveFilter] = useState<CalendarFilter>("tous");
   const [calendarView, setCalendarView] = useState<CalendarView>("mois");
-  const [visibleMonth, setVisibleMonth] = useState(() => getDefaultMonth(store));
+  const [visibleMonth, setVisibleMonth] = useState("");
   const [selectedEvent, setSelectedEvent] = useState<OperationalEvent | null>(null);
-  const snapshotStore = snapshot ?? store;
-  const events = useMemo(() => getOperationalEvents(snapshotStore), [snapshotStore]);
-
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setVisibleMonth((currentMonth) => currentMonth || getDefaultMonth(nextSnapshot));
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger le calendrier depuis le snapshot.", error);
-        if (active) {
-          setSnapshotError("Impossible de synchroniser le calendrier. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const snapshotStore = data;
+  const events = useMemo(() => (snapshotStore ? getOperationalEvents(snapshotStore) : []), [snapshotStore]);
+  const effectiveVisibleMonth = visibleMonth || (snapshotStore ? getDefaultMonth(snapshotStore) : today().slice(0, 7));
 
   const filteredEvents = useMemo(
     () => events.filter((event) => activeFilter === "tous" || event.type === activeFilter),
@@ -100,12 +68,33 @@ export default function CalendrierPage() {
   );
   const visibleEvents =
     calendarView === "mois"
-      ? filteredEvents.filter((event) => event.dueDate.startsWith(visibleMonth))
+      ? filteredEvents.filter((event) => event.dueDate.startsWith(effectiveVisibleMonth))
       : filteredEvents.filter((event) => getWeekDays(new Date()).some((day) => day.date === event.dueDate));
   const upcomingEvents = filteredEvents
     .filter((event) => event.dueDate >= today())
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
     .slice(0, 12);
+
+  if (!snapshotStore) {
+    return (
+      <RouteShell
+        title="Calendrier"
+        description="Calendrier opérationnel des loyers, baux, demandes d'entretien, inspections, assurances et documents."
+      >
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <p className="text-sm font-semibold text-[var(--muted)]">
+            {snapshotLoading ? "Chargement du calendrier..." : "Impossible de charger les données du portefeuille."}
+          </p>
+          {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+          {snapshotError ? (
+            <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+              Réessayer
+            </button>
+          ) : null}
+        </section>
+      </RouteShell>
+    );
+  }
 
   return (
     <RouteShell
@@ -113,15 +102,12 @@ export default function CalendrierPage() {
       description="Calendrier opérationnel des loyers, baux, demandes d'entretien, inspections, assurances et documents."
     >
       <section className="grid gap-5">
-        {snapshotLoading ? <p className="text-sm text-[var(--muted)]">Synchronisation du calendrier...</p> : null}
-        {snapshotError ? <p className="text-sm font-semibold text-[color:var(--amber)]">{snapshotError}</p> : null}
-
         <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="flex flex-wrap gap-2">
             {filters.map((filter) => (
               <button
                 key={filter.value}
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   activeFilter === filter.value
                     ? "bg-[color:var(--accent)] text-white"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -129,7 +115,8 @@ export default function CalendrierPage() {
                 onClick={() => setActiveFilter(filter.value)}
                 type="button"
               >
-                {filter.label}
+                <AppIcon name={filter.icon} size={16} />
+                <span>{filter.label}</span>
               </button>
             ))}
           </div>
@@ -162,7 +149,7 @@ export default function CalendrierPage() {
               <input
                 className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
                 type="month"
-                value={visibleMonth}
+                value={effectiveVisibleMonth}
                 onChange={(event) => setVisibleMonth(event.target.value)}
               />
             </label>
@@ -173,7 +160,7 @@ export default function CalendrierPage() {
 
         <div className="grid gap-5 xl:grid-cols-[1fr_380px]">
           {calendarView === "mois" ? (
-            <MonthView events={visibleEvents} month={visibleMonth} onSelect={setSelectedEvent} />
+            <MonthView events={visibleEvents} month={effectiveVisibleMonth} onSelect={setSelectedEvent} />
           ) : (
             <WeekView events={visibleEvents} onSelect={setSelectedEvent} />
           )}

@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
-import { loadPortfolioSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
 import {
   getFinanceSummary,
   getOccupancyRate,
@@ -14,18 +14,14 @@ import {
 import { currency, getPropertyDashboards, getPropertyName, getTenantName, getUnitLabel } from "@/lib/mockData";
 import { exportFinancialReport } from "@/lib/reportExports";
 import type { LocalStore, PaymentRecord, PropertyDashboard } from "@/lib/types";
-import { useLocalStore } from "@/lib/useLocalStore";
 
 type PeriodFilter = "mois" | "12mois";
 
 export default function FinancesPage() {
-  const { store } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
-  const [snapshotLoading, setSnapshotLoading] = useState(true);
-  const [snapshotError, setSnapshotError] = useState("");
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
   const [propertyFilter, setPropertyFilter] = useState("portfolio");
   const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("12mois");
-  const snapshotStore = snapshot ?? store;
+  const snapshotStore = data ?? emptyPortfolioStore;
   const properties = useMemo(() => getPropertyDashboards(snapshotStore), [snapshotStore]);
   const selectedProperty = properties.find((property) => property.id === propertyFilter) ?? null;
   const scopedPayments = useMemo(() => getScopedFinancePayments(snapshotStore, { period: periodFilter, propertyId: propertyFilter }), [periodFilter, propertyFilter, snapshotStore]);
@@ -34,49 +30,32 @@ export default function FinancesPage() {
   const chartData = getRevenueChartData(snapshotStore, { period: periodFilter, propertyId: propertyFilter });
   const risks = getUpcomingRisks(snapshotStore, scopedProperties, scopedPayments);
 
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (!active) {
-          return;
-        }
-
-        setSnapshot(nextSnapshot);
-        setSnapshotError("");
-      })
-      .catch((error) => {
-        console.error("Impossible de charger les finances depuis le snapshot.", error);
-        if (active) {
-          setSnapshotError("Impossible de synchroniser les finances. Les données locales sont affichées.");
-        }
-      })
-      .finally(() => {
-        if (active) {
-          setSnapshotLoading(false);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
-
   return (
     <RouteShell
       title="Finances"
       description="Performance financière du portefeuille, revenus, retards, occupation et risques à surveiller."
     >
       <section className="grid gap-5">
+        {!data ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+            <p className="text-sm font-semibold text-[var(--muted)]">
+              {snapshotLoading ? "Chargement des finances..." : "Impossible de charger les données du portefeuille."}
+            </p>
+            {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+            {snapshotError ? (
+              <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+                Réessayer
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+        {data ? (
+        <>
         <div className="flex justify-end">
           <button className="btn-primary" onClick={() => exportFinancialReport(snapshotStore, { period: periodFilter, propertyId: propertyFilter })} type="button">
             Exporter le rapport financier
           </button>
         </div>
-
-        {snapshotLoading ? <p className="text-sm text-[var(--muted)]">Synchronisation des finances...</p> : null}
-        {snapshotError ? <p className="text-sm font-semibold text-[color:var(--amber)]">{snapshotError}</p> : null}
 
         <div className="flex flex-col gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-2">
@@ -187,6 +166,8 @@ export default function FinancesPage() {
             ) : null}
           </div>
         </section>
+        </>
+        ) : null}
       </section>
     </RouteShell>
   );

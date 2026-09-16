@@ -3,6 +3,7 @@
 import type { Session, User } from "@supabase/supabase-js";
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { clearPortfolioSnapshotCache } from "@/lib/data/portfolioSnapshotService";
+import { setDataMode } from "@/lib/data/dataMode";
 import { ONBOARDING_TRANSITION_KEY } from "@/lib/onboardingDecision";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
@@ -14,8 +15,8 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
-  signUpWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
-  signInWithGoogle: () => Promise<{ error?: string }>;
+  signUpWithEmail: (email: string, password: string) => Promise<{ error?: string; confirmationRequired?: boolean }>;
+  signInWithGoogle: (redirectPath?: string) => Promise<{ error?: string }>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 };
@@ -34,6 +35,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     supabase.auth.getSession().then(({ data }) => {
       clearPortfolioSnapshotCache();
+      if (data.session?.user) {
+        setDataMode("supabase");
+      }
       setSession(data.session);
       setLoading(false);
     });
@@ -42,6 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       clearPortfolioSnapshotCache();
+      if (nextSession?.user) {
+        setDataMode("supabase");
+      }
       setSession(nextSession);
       setLoading(false);
     });
@@ -60,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { error: "Supabase n’est pas encore configuré." };
         }
 
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         return error ? { error: error.message } : {};
       },
       async signUpWithEmail(email, password) {
@@ -68,18 +75,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return { error: "Supabase n’est pas encore configuré." };
         }
 
-        const { error } = await supabase.auth.signUp({ email, password });
-        return error ? { error: error.message } : {};
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+          },
+        });
+
+        if (error) {
+          return { error: error.message };
+        }
+
+        if (data.session?.user) {
+          setDataMode("supabase");
+        }
+
+        return { confirmationRequired: !data.session };
       },
-      async signInWithGoogle() {
+      async signInWithGoogle(redirectPath = "/dashboard") {
         if (!supabase) {
           return { error: "Supabase n’est pas encore configuré." };
         }
 
+        setDataMode("supabase");
         const { error } = await supabase.auth.signInWithOAuth({
           provider: "google",
           options: {
-            redirectTo: `${window.location.origin}/dashboard`,
+            redirectTo: `${window.location.origin}${redirectPath}`,
           },
         });
         return error ? { error: error.message } : {};

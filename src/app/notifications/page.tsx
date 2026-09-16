@@ -1,46 +1,27 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
 import { NotificationList, notificationPriorityCopy } from "@/components/NotificationList";
-import { loadPortfolioSnapshot, type PortfolioSnapshot } from "@/lib/data/portfolioSnapshotService";
+import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getNotificationItems } from "@/lib/mockData";
 import type { NotificationPriority } from "@/lib/types";
-import { useLocalStore } from "@/lib/useLocalStore";
 
 type NotificationFilter = "toutes" | NotificationPriority;
 
-const filters: { label: string; value: NotificationFilter }[] = [
-  { label: "Toutes", value: "toutes" },
-  { label: "Urgentes", value: "urgent" },
-  { label: "À surveiller", value: "attention" },
-  { label: "Information", value: "info" },
+const filters: { icon: IconName; label: string; value: NotificationFilter }[] = [
+  { icon: "list", label: "Toutes", value: "toutes" },
+  { icon: "circle-alert", label: "Urgentes", value: "urgent" },
+  { icon: "clock", label: "À surveiller", value: "attention" },
+  { icon: "circle-dashed", label: "Information", value: "info" },
 ];
 
 export default function NotificationsPage() {
-  const { store } = useLocalStore();
-  const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
+  const { data, error: snapshotError, loading: snapshotLoading, refresh: refreshSnapshot } = usePortfolioSnapshot();
   const [activeFilter, setActiveFilter] = useState<NotificationFilter>("toutes");
-  const snapshotStore = snapshot ?? store;
-  const notifications = useMemo(() => getNotificationItems(snapshotStore), [snapshotStore]);
-
-  useEffect(() => {
-    let active = true;
-
-    loadPortfolioSnapshot()
-      .then((nextSnapshot) => {
-        if (active) {
-          setSnapshot(nextSnapshot);
-        }
-      })
-      .catch((error) => {
-        console.error("Impossible de charger les notifications depuis le snapshot.", error);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
+  const snapshotStore = data;
+  const notifications = useMemo(() => (snapshotStore ? getNotificationItems(snapshotStore) : []), [snapshotStore]);
 
   const filteredNotifications = useMemo(
     () =>
@@ -56,7 +37,21 @@ export default function NotificationsPage() {
       description="Alertes légères générées à partir des paiements, baux, demandes d’entretien et documents du portefeuille."
     >
       <section className="grid gap-5">
-        <div className="flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
+        {!snapshotStore ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+            <p className="text-sm font-semibold text-[var(--muted)]">
+              {snapshotLoading ? "Chargement des notifications..." : "Impossible de charger les données du portefeuille."}
+            </p>
+            {snapshotError ? <p className="mt-2 text-sm text-[color:var(--yellow)]">{snapshotError}</p> : null}
+            {snapshotError ? (
+              <button className="btn-secondary mt-4" onClick={() => void refreshSnapshot()} type="button">
+                Réessayer
+              </button>
+            ) : null}
+          </section>
+        ) : null}
+
+        {snapshotStore ? <div className="flex flex-wrap gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3">
           {filters.map((filter) => {
             const active = activeFilter === filter.value;
             const priority = filter.value === "toutes" ? null : notificationPriorityCopy[filter.value];
@@ -64,7 +59,7 @@ export default function NotificationsPage() {
             return (
               <button
                 key={filter.value}
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   active
                     ? "bg-[color:var(--accent)] text-white"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -73,15 +68,16 @@ export default function NotificationsPage() {
                 type="button"
               >
                 <span className="inline-flex items-center gap-2">
+                  <AppIcon name={filter.icon} size={16} />
                   {priority ? <span className={`h-2 w-2 rounded-full ${priority.dot}`} /> : null}
                   {filter.label}
                 </span>
               </button>
             );
           })}
-        </div>
+        </div> : null}
 
-        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        {snapshotStore ? <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
           <div className="mb-5 flex flex-col gap-2 border-b border-[var(--border)] pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-[var(--foreground)]">Liste des notifications</h2>
@@ -92,7 +88,7 @@ export default function NotificationsPage() {
             </span>
           </div>
           <NotificationList notifications={filteredNotifications} />
-        </div>
+        </div> : null}
       </section>
     </RouteShell>
   );

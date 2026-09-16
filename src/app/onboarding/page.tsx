@@ -1,15 +1,16 @@
-"use client";
+﻿"use client";
 
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
+import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { useAuth } from "@/lib/auth/AuthProvider";
+import { createManualNormalizedAddress, type NormalizedAddress } from "@/lib/data/addressService";
 import { getDataMode, setDataMode } from "@/lib/data/dataMode";
-import { assignTenantToUnit } from "@/lib/data/leaseAssignmentService";
 import { createInitialPayment, getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import { clearPortfolioSnapshotCache, refreshSnapshot } from "@/lib/data/portfolioSnapshotService";
-import { createProperty } from "@/lib/data/propertiesService";
-import { createUnitsForProperty } from "@/lib/data/unitsService";
 import { resetDemoData, saveLocalStore } from "@/lib/local-storage";
 import { ONBOARDING_KEY, ONBOARDING_TRANSITION_KEY } from "@/lib/onboardingDecision";
+import { supabase } from "@/lib/supabaseClient";
 import type { Lease, LocalStore, Property, RentPaymentStatus, Tenant, Unit } from "@/lib/types";
 import { createId } from "@/lib/useLocalStore";
 
@@ -18,8 +19,20 @@ type PropertyType = Property["propertyType"];
 type PropertyForm = {
   name: string;
   address: string;
+  addressLine1?: string;
+  streetNumber?: string;
+  street?: string;
   city: string;
+  district?: string;
+  province: string;
+  provinceCode?: string;
   postalCode: string;
+  country?: string;
+  countryCode?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  addressProvider?: string | null;
+  addressProviderId?: string | null;
   propertyType: PropertyType;
   unitCount: number;
 };
@@ -60,12 +73,21 @@ const unitCounts: Record<PropertyType, number> = {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { configured } = useAuth();
   const [step, setStep] = useState(0);
   const [propertyForm, setPropertyForm] = useState<PropertyForm>({
     name: "",
     address: "",
     city: "Québec",
+    province: "QC",
+    provinceCode: "QC",
     postalCode: "",
+    country: "Canada",
+    countryCode: "ca",
+    latitude: null,
+    longitude: null,
+    addressProvider: null,
+    addressProviderId: null,
     propertyType: "triplex",
     unitCount: 3,
   });
@@ -237,19 +259,19 @@ export default function OnboardingPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-medium text-[var(--muted)]">Configuration initiale</p>
-              <h1 className="mt-1 text-3xl font-semibold">Bienvenue dans Gestionnaire Immo</h1>
+              <h1 className="mt-1 text-3xl font-semibold">Bienvenue dans Habixa</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
                 Configurez rapidement vos immeubles, locataires, baux, paiements et entretiens pour démarrer avec une base claire.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            {!configured ? <div className="flex flex-wrap gap-2">
               <button className="btn-secondary" onClick={skipOnboarding} type="button">
                 Passer
               </button>
               <button className="btn-secondary" onClick={useDemoData} type="button">
                 Utiliser les données démo
               </button>
-            </div>
+            </div> : null}
           </div>
           <div className="mt-5">
             <div className="flex items-center justify-between text-xs font-semibold text-[var(--muted)]">
@@ -314,7 +336,7 @@ export default function OnboardingPage() {
 function WelcomeStep() {
   return (
     <div>
-      <h2 className="text-2xl font-semibold">Bienvenue dans Gestionnaire Immo</h2>
+      <h2 className="text-2xl font-semibold">Bienvenue dans Habixa</h2>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
         L’application vous aide à gérer vos immeubles, locataires, baux, paiements, documents et demandes d’entretien depuis un seul tableau de bord.
       </p>
@@ -335,14 +357,59 @@ function PropertyStep({
   onUnitCountChange: (unitCount: number) => void;
   unitCount: number;
 }) {
+  const [manualAddressMode, setManualAddressMode] = useState(form.addressProvider === "manual");
+
+  function selectAddress(address: NormalizedAddress) {
+    onChange(applyAddressToPropertyForm(form, address));
+    setManualAddressMode(false);
+  }
+
+  function updateManualAddress(nextForm: PropertyForm) {
+    const manualAddress = createManualNormalizedAddress({
+      address: nextForm.address,
+      city: nextForm.city,
+      province: nextForm.province || nextForm.provinceCode || "QC",
+      postalCode: nextForm.postalCode,
+      country: nextForm.country || "Canada",
+    });
+
+    onChange(applyAddressToPropertyForm(nextForm, manualAddress));
+  }
+
   return (
     <div className="grid gap-4">
       <h2 className="text-2xl font-semibold">Ajouter votre premier immeuble</h2>
       <div className="grid gap-3 md:grid-cols-2">
         <TextInput label="Nom de l’immeuble" value={form.name} onChange={(name) => onChange({ ...form, name })} />
-        <TextInput label="Adresse" value={form.address} onChange={(address) => onChange({ ...form, address })} />
-        <TextInput label="Ville" value={form.city} onChange={(city) => onChange({ ...form, city })} />
-        <TextInput label="Code postal" value={form.postalCode} onChange={(postalCode) => onChange({ ...form, postalCode })} />
+        <div className="md:col-span-2">
+          <AddressAutocomplete
+            manualMode={manualAddressMode}
+            onChange={(address) =>
+              manualAddressMode
+                ? updateManualAddress({ ...form, address })
+                : onChange({ ...form, address, addressProvider: null, addressProviderId: null })
+            }
+            onManualModeChange={setManualAddressMode}
+            onSelect={selectAddress}
+            value={form.address}
+          />
+        </div>
+        {manualAddressMode ? (
+          <>
+            <TextInput label="Ville" value={form.city} onChange={(city) => updateManualAddress({ ...form, city })} />
+            <TextInput
+              label="Province"
+              value={form.province || form.provinceCode || ""}
+              onChange={(province) => updateManualAddress({ ...form, province, provinceCode: province })}
+            />
+            <TextInput label="Code postal" value={form.postalCode} onChange={(postalCode) => updateManualAddress({ ...form, postalCode })} />
+            <TextInput label="Pays" value={form.country || "Canada"} onChange={(country) => updateManualAddress({ ...form, country })} />
+          </>
+        ) : (
+          <div className="md:col-span-2">
+            <OnboardingAddressSummary form={form} />
+          </div>
+        )}
         <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
           Type
           <select
@@ -560,19 +627,70 @@ function createTenantSetups(count: number) {
   return Array.from({ length: count }, () => createTenantSetup("vacant"));
 }
 
+function applyAddressToPropertyForm(form: PropertyForm, address: NormalizedAddress): PropertyForm {
+  return {
+    ...form,
+    address: address.formattedAddress,
+    addressLine1: address.formattedAddress,
+    streetNumber: address.streetNumber,
+    street: address.street,
+    city: address.city || form.city,
+    district: address.district,
+    province: address.province || address.provinceCode || form.province || "QC",
+    provinceCode: address.provinceCode || form.provinceCode || "QC",
+    postalCode: address.postalCode,
+    country: address.country || "Canada",
+    countryCode: address.countryCode || "ca",
+    latitude: address.latitude,
+    longitude: address.longitude,
+    addressProvider: address.provider,
+    addressProviderId: address.providerPlaceId,
+  };
+}
+
+function OnboardingAddressSummary({ form }: { form: PropertyForm }) {
+  if (!form.address || !form.addressProvider) {
+    return null;
+  }
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3 text-sm text-[var(--muted)]">
+      <p className="font-semibold text-[var(--foreground)]">{form.street || form.address}</p>
+      <p>
+        {[form.city, form.provinceCode || form.province].filter(Boolean).join(", ")}
+        {form.postalCode ? ` ${form.postalCode}` : ""}
+      </p>
+      <p>{form.country || "Canada"}</p>
+    </div>
+  );
+}
+
 function createTenantSetup(occupancy: TenantSetup["occupancy"]): TenantSetup {
+  const { endDate, startDate } = getDefaultLeaseDates();
+
   return {
     occupancy,
     tenantName: "",
     email: "",
     phone: "",
     rent: 0,
-    leaseStartDate: "2026-07-01",
-    leaseEndDate: "2027-06-30",
-    paymentStatus: "paid",
+    leaseStartDate: startDate,
+    leaseEndDate: endDate,
+    paymentStatus: "dueSoon",
     initialAmountPaid: 0,
-    paymentReceivedDate: occupancy === "occupied" ? getTodayIsoDate() : "",
+    paymentReceivedDate: "",
     notes: "",
+  };
+}
+
+function getDefaultLeaseDates() {
+  const currentMonth = getTodayIsoDate().slice(0, 7);
+  const [year, month] = currentMonth.split("-").map(Number);
+  const end = new Date(Date.UTC(year + 1, month - 1, 0));
+
+  return {
+    startDate: `${currentMonth}-01`,
+    endDate: end.toISOString().slice(0, 10),
   };
 }
 
@@ -590,6 +708,7 @@ function isTenantSetupValid(setup: TenantSetup) {
       setup.rent > 0 &&
       setup.leaseStartDate &&
       setup.leaseEndDate &&
+      setup.leaseEndDate >= setup.leaseStartDate &&
       (setup.paymentStatus !== "paid" && setup.paymentStatus !== "partial" || isPaymentReceivedDateValid(setup.paymentReceivedDate)) &&
       (setup.paymentStatus !== "partial" || isPartialPaymentAmountValid(setup.initialAmountPaid, setup.rent)),
   );
@@ -653,56 +772,76 @@ function debugOnboarding(runId: string, event: string, details?: Record<string, 
 }
 
 async function finishSupabaseOnboarding(propertyForm: PropertyForm, tenantSetups: TenantSetup[], runId: string) {
-  const property = await createProperty({
-    name: propertyForm.name.trim() || "Mon premier immeuble",
-    address: propertyForm.address.trim(),
-    city: propertyForm.city.trim() || "Québec",
-    postalCode: propertyForm.postalCode.trim(),
-    propertyType: propertyForm.propertyType,
-  });
-  debugOnboarding(runId, "property-created", { propertyId: property.id });
-  const units = await createUnitsForProperty(property.id, property.propertyType, getSelectedUnitCount(propertyForm));
-  debugOnboarding(runId, "units-created", { unitCount: units.length });
-  let onboardingStore: LocalStore = {
-    properties: [property],
-    units,
-    tenants: [],
-    leases: [],
-    maintenanceTickets: [],
-    activities: [],
-    documents: [],
-    payments: [],
-    rentCharges: [],
-    paymentTransactions: [],
-    paymentAllocations: [],
-    notes: [],
-    tasks: [],
-  };
-
-  for (const [index, setup] of tenantSetups.entries()) {
-    const unit = units[index];
-    const fullName = setup.tenantName.trim();
-
-    if (!unit || !isTenantSetupOccupied(setup) || !fullName) {
-      continue;
-    }
-
-    onboardingStore = await assignTenantToUnit(onboardingStore, {
-      propertyId: property.id,
-      unitId: unit.id,
-      fullName,
-      email: setup.email,
-      phone: setup.phone,
-      monthlyRent: setup.rent,
-      leaseStartDate: setup.leaseStartDate,
-      leaseEndDate: setup.leaseEndDate,
-      paymentStatus: setup.paymentStatus,
-      initialAmountPaid: setup.initialAmountPaid,
-      paymentReceivedDate: setup.paymentReceivedDate,
-      notes: setup.notes,
-    });
-    debugOnboarding(runId, "tenant-lease-created", { unitId: unit.id });
+  if (!supabase) {
+    throw new Error("authentication_unavailable");
   }
+
+  const unitCount = getSelectedUnitCount(propertyForm);
+  const { data, error } = await supabase.rpc("create_owner_portfolio", {
+    p_property: {
+      name: propertyForm.name.trim() || "Mon premier immeuble",
+      address: propertyForm.address.trim(),
+      address_line1: propertyForm.addressLine1 || propertyForm.address.trim(),
+      street_number: propertyForm.streetNumber || "",
+      street: propertyForm.street || "",
+      city: propertyForm.city.trim() || "Québec",
+      district: propertyForm.district || "",
+      province: propertyForm.province || propertyForm.provinceCode || "QC",
+      province_code: propertyForm.provinceCode || "QC",
+      postal_code: propertyForm.postalCode.trim(),
+      country: propertyForm.country || "Canada",
+      country_code: propertyForm.countryCode || "ca",
+      latitude: propertyForm.latitude,
+      longitude: propertyForm.longitude,
+      address_provider: propertyForm.addressProvider || "",
+      address_provider_id: propertyForm.addressProviderId || "",
+      type: propertyForm.propertyType,
+    },
+    p_units: createSupabaseUnitPayloads(propertyForm.propertyType, unitCount),
+    p_occupancies: tenantSetups.flatMap((setup, unitIndex) =>
+      isTenantSetupOccupied(setup) && setup.tenantName.trim()
+        ? [{
+            unit_index: unitIndex,
+            full_name: setup.tenantName.trim(),
+            email: setup.email.trim(),
+            phone: setup.phone.trim(),
+            monthly_rent: setup.rent,
+            lease_start_date: setup.leaseStartDate,
+            lease_end_date: setup.leaseEndDate,
+            payment_status: setup.paymentStatus,
+            initial_amount_paid: setup.initialAmountPaid,
+            payment_received_date: setup.paymentReceivedDate,
+            notes: setup.notes.trim(),
+          }]
+        : [],
+    ),
+  });
+
+  if (error) {
+    console.error("Impossible de créer le portefeuille.", error);
+    throw new Error("portfolio_creation_failed");
+  }
+
+  debugOnboarding(runId, "portfolio-created", data && typeof data === "object" ? data as Record<string, unknown> : undefined);
+}
+
+function createSupabaseUnitPayloads(propertyType: PropertyType, unitCount: number) {
+  const fixedFloors: Partial<Record<PropertyType, string[]>> = {
+    condo: ["Unité principale"],
+    duplex: ["Rez-de-chaussée", "2e étage"],
+    triplex: ["Rez-de-chaussée", "2e étage", "3e étage"],
+    quadruplex: ["Rez-de-chaussée", "2e étage", "3e étage", "4e étage"],
+  };
+  const floors = propertyType === "immeuble"
+    ? Array.from({ length: unitCount }, (_, index) => `Logement ${index + 1}`)
+    : fixedFloors[propertyType] ?? [];
+
+  return floors.map((floor, index) => ({
+    name: `Logement ${index + 1}`,
+    floor,
+    floor_index: index + 1,
+    sort_order: index + 1,
+  }));
 }
 
 function createOnboardingStore(propertyForm: PropertyForm, tenantSetups: TenantSetup[]): LocalStore {
@@ -712,9 +851,20 @@ function createOnboardingStore(propertyForm: PropertyForm, tenantSetups: TenantS
     id: propertyId,
     name: propertyForm.name.trim() || "Mon premier immeuble",
     address: propertyForm.address.trim(),
+    addressLine1: propertyForm.addressLine1 || propertyForm.address.trim(),
+    streetNumber: propertyForm.streetNumber,
+    street: propertyForm.street,
     city: propertyForm.city.trim() || "Québec",
-    province: "QC",
+    district: propertyForm.district,
+    province: propertyForm.province || propertyForm.provinceCode || "QC",
+    provinceCode: propertyForm.provinceCode,
     postalCode: propertyForm.postalCode.trim(),
+    country: propertyForm.country || "Canada",
+    countryCode: propertyForm.countryCode || "ca",
+    latitude: propertyForm.latitude ?? null,
+    longitude: propertyForm.longitude ?? null,
+    addressProvider: propertyForm.addressProvider,
+    addressProviderId: propertyForm.addressProviderId,
     propertyType: propertyForm.propertyType,
   };
   const tenantByUnitIndex = new Map<number, Tenant>();

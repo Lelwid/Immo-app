@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NotificationList } from "@/components/NotificationList";
@@ -73,7 +74,7 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-export function AppHeader() {
+export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
   const pathname = usePathname();
   const { configured, signOut, user } = useAuth();
   const { clearCache: clearPortfolioSnapshotCache, data, refresh: refreshPortfolioSnapshot } = usePortfolioSnapshot();
@@ -256,16 +257,19 @@ export function AppHeader() {
       ref={headerRef}
       className="relative flex min-h-12 w-full min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 sm:px-4"
     >
-      <Link href="/dashboard" className="flex shrink-0 items-center gap-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[color:var(--accent)]/40 bg-[color:var(--accent)]/10 text-sm font-bold text-[color:var(--accent)]">
-          GI
-        </div>
-        <div className="hidden min-w-0 sm:block">
-          <p className="truncate text-sm font-semibold leading-tight text-[var(--foreground)]">Gestionnaire Immo</p>
-          <p className="truncate text-xs leading-tight text-[var(--muted)]">Portefeuille investisseurs</p>
-        </div>
-      </Link>
+      {!compact ? (
+        <Link href="/dashboard" className="flex shrink-0 items-center gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[color:var(--accent)]/30 bg-white">
+            <Image src="/icons/habixa-icon-192x192.png" alt="Logo Habixa" width={28} height={28} className="h-full w-full object-contain" />
+          </div>
+          <div className="hidden min-w-0 sm:block">
+            <p className="truncate text-sm font-semibold leading-tight text-[var(--foreground)]">Habixa</p>
+            <p className="truncate text-xs leading-tight text-[var(--muted)]">Portefeuille investisseurs</p>
+          </div>
+        </Link>
+      ) : null}
 
+      {!compact ? (
       <div className="hidden shrink-0 items-center gap-1 text-sm font-medium text-[var(--muted)] xl:flex">
         {navigationGroups.map((group) => (
           <DesktopNavItem
@@ -290,8 +294,9 @@ export function AppHeader() {
           />
         ))}
       </div>
+      ) : null}
 
-      <div className="ml-auto flex min-w-0 flex-1 items-center justify-end gap-2">
+      <div className={`${compact ? "" : "ml-auto"} flex min-w-0 flex-1 items-center justify-end gap-2`}>
         <button
           type="button"
           aria-expanded={mobileMenuOpen}
@@ -332,9 +337,9 @@ export function AppHeader() {
             setMobileMenuOpen(false);
             void refreshPortfolioSnapshot();
           }}
-          className="hidden min-w-[160px] max-w-[260px] flex-[1_1_220px] items-center justify-between gap-3 rounded-full border border-[var(--border)] bg-[var(--surface-3)] px-3 py-1.5 text-left text-xs font-medium text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] md:flex"
+          className={`${compact ? "max-w-[690px] rounded-lg py-2.5 text-sm" : "max-w-[260px] rounded-full py-1.5 text-xs"} hidden min-w-[160px] flex-[1_1_220px] items-center justify-between gap-3 border border-[var(--border)] bg-[var(--surface-3)] px-3 text-left font-medium text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] md:flex`}
         >
-          <span className="truncate">Rechercher...</span>
+          <span className="truncate">{compact ? "Rechercher (immeuble, locataire, document...)" : "Rechercher..."}</span>
           <span className="hidden shrink-0 rounded border border-[var(--border)] px-1.5 py-0.5 text-[10px] sm:inline">Ctrl K</span>
         </button>
         <div className="relative">

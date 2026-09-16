@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { AppIcon, type IconName } from "@/components/AppIcon";
 import { getTodayIsoDate } from "@/lib/data/paymentSideEffectsService";
 import {
   getRentLedger,
@@ -77,6 +78,7 @@ export default function PaiementsPage() {
   const [openMenuRowId, setOpenMenuRowId] = useState<string | null>(null);
   const [expandedFuture, setExpandedFuture] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const paymentSaveInFlightRef = useRef(false);
   const [errorMessage, setErrorMessage] = useState("");
   const displayStore = data ?? store;
 
@@ -159,6 +161,11 @@ export default function PaiementsPage() {
   }
 
   async function handleRegisterPayment(form: RegisterPaymentForm) {
+    if (paymentSaveInFlightRef.current) {
+      return;
+    }
+
+    paymentSaveInFlightRef.current = true;
     setIsSaving(true);
     setErrorMessage("");
 
@@ -173,6 +180,7 @@ export default function PaiementsPage() {
       console.error("Impossible d'enregistrer le paiement.", error);
       setErrorMessage(error instanceof Error ? error.message : "Impossible d'enregistrer le paiement.");
     } finally {
+      paymentSaveInFlightRef.current = false;
       setIsSaving(false);
     }
   }
@@ -244,7 +252,7 @@ export default function PaiementsPage() {
             return (
               <button
                 key={filter.value}
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   active
                     ? "bg-[color:var(--accent)] text-white"
                     : "text-[var(--muted)] hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
@@ -255,7 +263,8 @@ export default function PaiementsPage() {
                 }}
                 type="button"
               >
-                {filter.label}
+                <AppIcon name={filter.icon} size={16} />
+                <span>{filter.label}</span>
               </button>
             );
           })}
@@ -987,13 +996,13 @@ function groupRowsByMonth(rows: RentChargeRow[], prefix: string, descending: boo
     }));
 }
 
-function getFilterDefinitions(counts: Record<PaymentWorkspaceFilter, number>): { label: string; value: PaymentWorkspaceFilter }[] {
+function getFilterDefinitions(counts: Record<PaymentWorkspaceFilter, number>): { icon: IconName; label: string; value: PaymentWorkspaceFilter }[] {
   return [
-    { label: `À traiter (${counts.attention})`, value: "attention" },
-    { label: `Tous (${counts.tous})`, value: "tous" },
-    { label: `Payés (${counts.payes})`, value: "payes" },
-    { label: `À venir (${counts.avenir})`, value: "avenir" },
-    { label: `Historique (${counts.historique})`, value: "historique" },
+    { icon: "circle-alert", label: `À traiter (${counts.attention})`, value: "attention" },
+    { icon: "list", label: `Tous (${counts.tous})`, value: "tous" },
+    { icon: "circle-check", label: `Payés (${counts.payes})`, value: "payes" },
+    { icon: "clock", label: `À venir (${counts.avenir})`, value: "avenir" },
+    { icon: "history", label: `Historique (${counts.historique})`, value: "historique" },
   ];
 }
 
