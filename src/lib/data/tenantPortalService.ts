@@ -119,7 +119,7 @@ export async function getTenantPortalSnapshot(): Promise<TenantPortalSnapshot> {
   const chargeIds = rentCharges.map((charge) => charge.id);
   const [properties, units, paymentAllocations] = await Promise.all([
     propertyIds.length > 0
-      ? selectRows("properties", "id,name,address,address_line1,street_number,street,city,district,province,province_code,postal_code,country,country_code,latitude,longitude,address_provider,address_provider_id,type,property_type", (query) => query.in("id", propertyIds)).then((rows) => rows.map(mapProperty))
+      ? selectRows("properties", "id,name,address,address_line1,street_number,street,city,district,province,province_code,postal_code,country,country_code,latitude,longitude,address_provider,address_provider_id,type", (query) => query.in("id", propertyIds)).then((rows) => rows.map(mapProperty))
       : Promise.resolve([]),
     unitIds.length > 0
       ? selectRows("units", "id,property_id,name,floor,floor_index,sort_order,monthly_rent,status,tenant_id,alerts_count,created_at,updated_at", (query) => query.in("id", unitIds)).then((rows) => rows.map(mapUnit))
