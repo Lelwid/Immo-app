@@ -772,7 +772,7 @@ function getDocumentTypeFromQuery(value: string | null): DocumentType | undefine
 }
 
 function getRelatedEntityTypeFromQuery(value: string | null): DocumentRelatedEntityType | undefined {
-  return value && value in relatedEntityTypeLabel ? (value as DocumentRelatedEntityType) : undefined;
+  return value && value !== "locataire" && value in relatedEntityTypeLabel ? (value as DocumentRelatedEntityType) : undefined;
 }
 
 function getDocumentHistory(document: PropertyDocument, store: LocalStore) {

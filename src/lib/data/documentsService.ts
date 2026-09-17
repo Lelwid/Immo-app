@@ -659,6 +659,12 @@ function toSupabaseUpdate(input: Required<DocumentInput>) {
 
 function normalizeDocumentInput(input: DocumentInput): Required<DocumentInput> {
   const uploadedAt = input.uploadedAt || new Date().toISOString();
+  const relatedEntityType = input.relatedEntityType === "locataire" ? "bail" : input.relatedEntityType ?? "logement";
+  const relatedEntityId = input.relatedEntityType === "locataire" ? input.leaseId ?? "" : input.relatedEntityId ?? input.unitId ?? "";
+
+  if (relatedEntityType === "bail" && !input.leaseId) {
+    throw new Error("Sélectionnez un bail pour attacher ce document au locataire.");
+  }
 
   return {
     id: input.id ?? "",
@@ -669,8 +675,8 @@ function normalizeDocumentInput(input: DocumentInput): Required<DocumentInput> {
     tenantId: input.tenantId ?? null,
     leaseId: input.leaseId ?? null,
     uploadDate: input.uploadDate || uploadedAt.slice(0, 10),
-    relatedEntityType: input.relatedEntityType ?? "logement",
-    relatedEntityId: input.relatedEntityId ?? input.unitId ?? "",
+    relatedEntityType,
+    relatedEntityId,
     uploadedAt,
     fileDataUrl: input.fileDataUrl ?? "",
     storagePath: input.storagePath ?? "",

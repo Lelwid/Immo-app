@@ -42,11 +42,13 @@ const documentTypes = Object.entries(documentTypeLabel) as [DocumentType, string
 const relatedEntityTypeLabel: Record<DocumentRelatedEntityType, string> = {
   immeuble: "Immeuble",
   logement: "Logement",
-  locataire: "Locataire",
+  locataire: "Bail",
   bail: "Bail",
   entretien: "Demande d'entretien",
   paiement: "Paiement",
 };
+
+const selectableRelatedEntityTypes = new Set<DocumentRelatedEntityType>(["immeuble", "logement", "bail", "entretien", "paiement"]);
 
 export function DocumentUploadModal({
   initialLeaseId,
@@ -81,7 +83,8 @@ export function DocumentUploadModal({
   const relatedTypeOptions = useMemo(
     () =>
       (Object.entries(relatedEntityTypeLabel) as [DocumentRelatedEntityType, string][])
-        .filter(([type]) => !propertyId || type === "immeuble" || type === "logement" || type === "locataire" || type === "bail")
+        .filter(([type]) => selectableRelatedEntityTypes.has(type))
+        .filter(([type]) => !propertyId || type === "immeuble" || type === "logement" || type === "bail")
         .map(([value, label]) => [value, label]),
     [propertyId],
   );
@@ -266,7 +269,10 @@ function createEmptyDocumentForm(
     unitId?: string | null;
   },
 ): DocumentForm {
-  const relatedEntityType: DocumentRelatedEntityType = initialRelationship?.relatedEntityType ?? (propertyId ? "immeuble" : "logement");
+  const relatedEntityType: DocumentRelatedEntityType =
+    initialRelationship?.relatedEntityType === "locataire"
+      ? "bail"
+      : initialRelationship?.relatedEntityType ?? (propertyId ? "immeuble" : "logement");
   const options = getRelatedEntityOptions(store, relatedEntityType, propertyId);
   const firstOption =
     options.find(
@@ -320,34 +326,21 @@ function getRelatedEntityOptions(store: LocalStore, relatedEntityType: DocumentR
       }));
   }
 
-  if (relatedEntityType === "locataire") {
+  if (relatedEntityType === "bail") {
     return store.leases
       .filter((lease) => lease.status === "active" && propertyIds.has(lease.propertyId))
       .map((lease) => {
         const tenant = store.tenants.find((candidate) => candidate.id === lease.tenantId);
 
         return {
-          value: lease.tenantId,
-          label: `${getTenantDisplayName(tenant)} · ${getUnitLabel(lease.unitId, store)}`,
+          value: lease.id,
+          label: `${getTenantDisplayName(tenant)} · ${getUnitLabel(lease.unitId, store)} · ${lease.startDate} au ${lease.endDate}`,
           propertyId: lease.propertyId,
           unitId: lease.unitId,
           tenantId: lease.tenantId,
           leaseId: lease.id,
         };
       });
-  }
-
-  if (relatedEntityType === "bail") {
-    return store.leases
-      .filter((lease) => lease.status === "active" && propertyIds.has(lease.propertyId))
-      .map((lease) => ({
-        value: lease.id,
-        label: `${getUnitLabel(lease.unitId, store)} · ${lease.startDate} au ${lease.endDate}`,
-        propertyId: lease.propertyId,
-        unitId: lease.unitId,
-        tenantId: lease.tenantId,
-        leaseId: lease.id,
-      }));
   }
 
   if (relatedEntityType === "entretien") {

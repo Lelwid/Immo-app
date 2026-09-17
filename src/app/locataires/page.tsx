@@ -24,6 +24,7 @@ import {
   disableTenantPortalAccess,
   getTenantPortalAccessForTenant,
   type TenantPortalInvitation,
+  TenantPortalInvitationError,
 } from "@/lib/data/tenantPortalService";
 import { currency, getPropertyName, rentPaymentStatusLabel } from "@/lib/mockData";
 import type { LocalStore, PaymentRecord, Tenant, Unit } from "@/lib/types";
@@ -467,7 +468,6 @@ function TenantSummaryTab({
 }
 
 function TenantPortalAccessPanel({ tenant }: { tenant: Tenant }) {
-  const [activationUrl, setActivationUrl] = useState("");
   const [email, setEmail] = useState(tenant.email);
   const [invitation, setInvitation] = useState<TenantPortalInvitation | null>(null);
   const [message, setMessage] = useState("");
@@ -482,7 +482,6 @@ function TenantPortalAccessPanel({ tenant }: { tenant: Tenant }) {
       }
 
       setEmail(tenant.email);
-      setActivationUrl("");
       setMessage("");
       setStatus("Chargement...");
       setInvitation(null);
@@ -523,15 +522,18 @@ function TenantPortalAccessPanel({ tenant }: { tenant: Tenant }) {
 
     try {
       const result = await createTenantPortalInvitation(tenant, email);
-      const absoluteUrl = typeof window !== "undefined" ? `${window.location.origin}${result.activationUrl}` : result.activationUrl;
-
-      setActivationUrl(absoluteUrl);
       setInvitation(result.invitation);
       setStatus("Invitation envoyée");
-      setMessage("Invitation préparée. Copiez le lien de développement si aucun courriel n'est envoyé automatiquement.");
+      setMessage(result.emailSent ? "Invitation envoyée par courriel. Elle expire dans 14 jours." : "Invitation simulée en mode local.");
     } catch (error) {
       console.error("Impossible d'inviter le locataire au portail.", error);
-      setMessage("Impossible de créer l'invitation au portail.");
+      setMessage(
+        error instanceof TenantPortalInvitationError && error.code === "EMAIL_NOT_CONFIGURED"
+          ? "L’envoi des invitations par courriel doit être configuré pour cet environnement."
+          : error instanceof TenantPortalInvitationError
+            ? error.message
+            : "Impossible de créer l'invitation au portail.",
+      );
     } finally {
       setLoading(false);
     }
@@ -551,15 +553,6 @@ function TenantPortalAccessPanel({ tenant }: { tenant: Tenant }) {
     } finally {
       setLoading(false);
     }
-  }
-
-  async function copyInvitationUrl() {
-    if (!activationUrl) {
-      return;
-    }
-
-    await navigator.clipboard.writeText(activationUrl);
-    setMessage("Lien copié.");
   }
 
   return (
@@ -587,13 +580,7 @@ function TenantPortalAccessPanel({ tenant }: { tenant: Tenant }) {
             Désactiver l’accès
           </button>
         ) : null}
-        {activationUrl ? (
-          <button className="btn-secondary text-left text-xs" onClick={copyInvitationUrl} type="button">
-            Copier le lien de développement
-          </button>
-        ) : null}
       </div>
-      {activationUrl ? <p className="mt-2 break-all text-xs text-[var(--muted)]">{activationUrl}</p> : null}
       {message ? <p className="mt-2 text-xs text-[var(--muted)]">{message}</p> : null}
     </section>
   );

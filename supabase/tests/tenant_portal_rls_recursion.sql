@@ -200,15 +200,21 @@ begin
 end;
 $$;
 
--- A former tenant keeps access to records explicitly linked to their tenant or lease,
--- but loses access inherited only from the old unit/property.
+-- A former tenant loses direct document and storage access after the lease ends.
 select set_config('request.jwt.claim.sub', (select owner_id::text from rls_fixture where scope='A'), true);
 select set_config('request.jwt.claims', json_build_object('sub',(select owner_id from rls_fixture where scope='A'),'role','authenticated')::text, true);
 update public.documents
 set storage_path = (select owner_id::text || '/security-test-former-unit.pdf' from rls_fixture where scope='A')
 where id = (select unit_doc_id from rls_fixture where scope='A');
+update public.documents
+set storage_path = (select owner_id::text || '/security-test-former-lease.pdf' from rls_fixture where scope='A')
+where id = (select lease_doc_id from rls_fixture where scope='A');
 insert into storage.objects(bucket_id, name, owner_id, metadata)
 select 'documents', owner_id::text || '/security-test-former-unit.pdf', owner_id::text,
+       '{"mimetype":"application/pdf","size":128}'::jsonb
+from rls_fixture where scope='A';
+insert into storage.objects(bucket_id, name, owner_id, metadata)
+select 'documents', owner_id::text || '/security-test-former-lease.pdf', owner_id::text,
        '{"mimetype":"application/pdf","size":128}'::jsonb
 from rls_fixture where scope='A';
 update public.leases set status='ended', actual_end_date='2026-08-31'
@@ -221,13 +227,15 @@ select pg_temp.assert_count('Former tenant: no property inherited from ended lea
   format('select count(*) from public.properties where id=%L', (select property_id from rls_fixture where scope='A')), 0);
 select pg_temp.assert_count('Former tenant: no unit inherited from ended lease',
   format('select count(*) from public.units where id=%L', (select unit_id from rls_fixture where scope='A')), 0);
-select pg_temp.assert_count('Former tenant: explicit tenant and lease documents remain visible',
+select pg_temp.assert_count('Former tenant: explicit tenant and lease documents are hidden',
   format('select count(*) from public.documents where id in (%L,%L)',
-    (select shared_doc_id from rls_fixture where scope='A'), (select lease_doc_id from rls_fixture where scope='A')), 2);
+    (select shared_doc_id from rls_fixture where scope='A'), (select lease_doc_id from rls_fixture where scope='A')), 0);
 select pg_temp.assert_count('Former tenant: unit-only document is hidden',
   format('select count(*) from public.documents where id=%L', (select unit_doc_id from rls_fixture where scope='A')), 0);
 select pg_temp.assert_count('Former tenant: unit-only storage object is hidden',
   format('select count(*) from storage.objects where name=%L', (select owner_id::text || '/security-test-former-unit.pdf' from rls_fixture where scope='A')), 0);
+select pg_temp.assert_count('Former tenant: lease storage object is hidden',
+  format('select count(*) from storage.objects where name=%L', (select owner_id::text || '/security-test-former-lease.pdf' from rls_fixture where scope='A')), 0);
 reset role;
 
 -- Invitation identity and secret are controlled by database triggers.
@@ -366,6 +374,12 @@ select pg_temp.assert_count('Unit helper: authenticated execution allowed',
   $$select has_function_privilege('authenticated','private.tenant_portal_can_read_unit(uuid)','execute')::int$$, 1);
 select pg_temp.assert_count('Unit helper: definer with empty search_path',
   $$select count(*) from pg_proc where oid='private.tenant_portal_can_read_unit(uuid)'::regprocedure and prosecdef and proconfig=array['search_path=""']$$, 1);
+select pg_temp.assert_count('Document helper: anonymous execution denied',
+  $$select has_function_privilege('anon','private.tenant_portal_can_read_document(uuid,uuid,uuid)','execute')::int$$, 0);
+select pg_temp.assert_count('Document helper: authenticated execution allowed',
+  $$select has_function_privilege('authenticated','private.tenant_portal_can_read_document(uuid,uuid,uuid)','execute')::int$$, 1);
+select pg_temp.assert_count('Document helper: definer with empty search_path',
+  $$select count(*) from pg_proc where oid='private.tenant_portal_can_read_document(uuid,uuid,uuid)'::regprocedure and prosecdef and proconfig=array['search_path=""']$$, 1);
 select pg_temp.assert_count('Privileges: anonymous has no properties SELECT',
   $$select has_table_privilege('anon','public.properties','select')::int$$, 0);
 select pg_temp.assert_count('Privileges: authenticated has no TRUNCATE',

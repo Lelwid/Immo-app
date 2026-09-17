@@ -37,8 +37,17 @@ export type TenantPortalInvitation = {
   id: string;
   status: "pending" | "accepted" | "revoked" | "expired";
   tenantId: string;
-  token: string;
 };
+
+export class TenantPortalInvitationError extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = "TenantPortalInvitationError";
+  }
+}
 
 export type TenantPortalSnapshot = {
   accounts: TenantPortalAccount[];
@@ -215,35 +224,40 @@ export async function createTenantPortalInvitation(tenant: Tenant, email: string
       id: `local-tenant-invitation-${tenant.id}`,
       status: "pending",
       tenantId: tenant.id,
-      token: `local-${tenant.id}`,
     };
-    return { activationUrl: `/locataire/invitation?token=${invitation.token}`, invitation };
+    return { emailSent: false, invitation };
   }
 
-  const { data: userData, error: userError } = await supabase!.auth.getUser();
+  const { data: sessionData, error: sessionError } = await supabase!.auth.getSession();
+  const accessToken = sessionData.session?.access_token;
 
-  if (userError || !userData.user?.id) {
-    throw new Error("Session propriétaire invalide.");
+  if (sessionError || !accessToken) {
+    throw new TenantPortalInvitationError("UNAUTHORIZED", "Session propriétaire invalide.");
   }
 
-  const { data, error } = await supabase!
-    .from("tenant_portal_invitations")
-    .insert({
-      email: email.trim().toLowerCase(),
-      invited_by: userData.user.id,
-      owner_user_id: userData.user.id,
-      tenant_id: tenant.id,
-    })
-    .select("id,tenant_id,email,token,status,expires_at,accepted_at")
-    .single();
+  const response = await fetch("/api/tenant-portal/invitations", {
+    body: JSON.stringify({ email: email.trim().toLowerCase(), tenantId: tenant.id }),
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+  const payload = (await response.json().catch(() => null)) as {
+    code?: string;
+    error?: string;
+    invitation?: Record<string, unknown>;
+  } | null;
 
-  if (error || !data) {
-    logClientError("Impossible de créer l'invitation au portail.", error);
-    throw new Error("Impossible de créer l'invitation au portail.");
+  if (!response.ok || !payload?.invitation) {
+    throw new TenantPortalInvitationError(
+      payload?.code || "INVITATION_FAILED",
+      payload?.error || "Impossible de créer l'invitation au portail.",
+    );
   }
 
-  const invitation = mapInvitation(data);
-  return { activationUrl: `/locataire/invitation?token=${invitation.token}`, invitation };
+  return { emailSent: true, invitation: mapInvitation(payload.invitation) };
 }
 
 export async function getTenantPortalAccessForTenant(tenantId: string) {
@@ -253,7 +267,7 @@ export async function getTenantPortalAccessForTenant(tenantId: string) {
 
   const [accounts, invitations] = await Promise.all([
     selectRows("tenant_portal_accounts", "id,user_id,tenant_id,owner_user_id,status,invited_at,activated_at,disabled_at,created_at,updated_at", (query) => query.eq("tenant_id", tenantId)).then((rows) => rows.map(mapAccount)),
-    selectRows("tenant_portal_invitations", "id,tenant_id,email,token,status,expires_at,accepted_at", (query) => query.eq("tenant_id", tenantId).order("created_at", { ascending: false })).then((rows) => rows.map(mapInvitation)),
+    selectRows("tenant_portal_invitations", "id,tenant_id,email,status,expires_at,accepted_at", (query) => query.eq("tenant_id", tenantId).order("created_at", { ascending: false })).then((rows) => rows.map(mapInvitation)),
   ]);
   const activeAccount = accounts.find((account) => account.status === "active");
   const pendingInvitation = invitations.find((invitation) => invitation.status === "pending");
@@ -509,7 +523,6 @@ function mapInvitation(row: Record<string, unknown>): TenantPortalInvitation {
     id: stringValue(row.id),
     status: normalizeInvitationStatus(row.status),
     tenantId: stringValue(row.tenant_id),
-    token: stringValue(row.token),
   };
 }
 
