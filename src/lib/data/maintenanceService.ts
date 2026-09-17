@@ -1,7 +1,7 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
-import type { MaintenanceTicket, TicketPriority, TicketStatus } from "@/lib/types";
+import type { MaintenanceAttachment, MaintenanceTicket, TicketPriority, TicketStatus } from "@/lib/types";
 
 const table = "maintenance_requests";
 
@@ -91,6 +91,49 @@ export async function getMaintenanceRequestsForUnit(unitId: string): Promise<Mai
   }
 
   return sortTickets(loadLocalStore().maintenanceTickets.filter((ticket) => ticket.unitId === unitId));
+}
+
+export async function getMaintenanceAttachments(ticketId: string): Promise<MaintenanceAttachment[]> {
+  if (!canUseSupabase()) {
+    return [];
+  }
+
+  const { data, error } = await supabase!
+    .from("maintenance_request_attachments")
+    .select("id,maintenance_request_id,tenant_id,file_name,storage_path,mime_type,size_bytes,created_at")
+    .eq("maintenance_request_id", ticketId)
+    .order("created_at", { ascending: true });
+
+  if (error || !data) {
+    throw new Error("Impossible de charger les photos de la demande.");
+  }
+
+  return data.map((row) => ({
+    createdAt: row.created_at,
+    fileName: row.file_name,
+    id: row.id,
+    maintenanceRequestId: row.maintenance_request_id,
+    mimeType: row.mime_type,
+    size: row.size_bytes,
+    storagePath: row.storage_path,
+    tenantId: row.tenant_id,
+  }));
+}
+
+export async function getMaintenanceAttachmentUrl(attachment: MaintenanceAttachment) {
+  if (!canUseSupabase()) {
+    return "";
+  }
+
+  const { data, error } = await supabase!.storage
+    .from("maintenance-attachments")
+    .createSignedUrl(attachment.storagePath, 60 * 10);
+
+  if (error || !data?.signedUrl) {
+    throw new Error("Impossible d’ouvrir la photo.");
+  }
+
+  return data.signedUrl;
 }
 
 export async function createMaintenanceRequest(input: MaintenanceRequestInput): Promise<MaintenanceTicket> {

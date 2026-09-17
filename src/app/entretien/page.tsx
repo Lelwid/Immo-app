@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { AppIcon, type IconName } from "@/components/AppIcon";
 import { NotesPanel } from "@/components/NotesPanel";
@@ -11,6 +11,8 @@ import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
 import {
   createMaintenanceRequest,
   deleteMaintenanceRequest,
+  getMaintenanceAttachments,
+  getMaintenanceAttachmentUrl,
   updateMaintenanceRequest,
 } from "@/lib/data/maintenanceService";
 import {
@@ -20,7 +22,7 @@ import {
   ticketPriorityLabel,
   ticketStatusLabel,
 } from "@/lib/mockData";
-import type { LocalStore, MaintenanceTicket, TicketPriority, TicketStatus, UnitActivity } from "@/lib/types";
+import type { LocalStore, MaintenanceAttachment, MaintenanceTicket, TicketPriority, TicketStatus, UnitActivity } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
 type TicketForm = Omit<MaintenanceTicket, "id">;
@@ -500,6 +502,8 @@ function TicketDetailPanel({
         <InfoCard label="Statut" value={ticketStatusLabel[ticket.status]} />
       </div>
 
+      <MaintenanceAttachments ticketId={ticket.id} />
+
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
         <h3 className="font-semibold text-[var(--foreground)]">Actions</h3>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -549,6 +553,81 @@ function TicketDetailPanel({
         </div>
       </section>
     </div>
+  );
+}
+
+function MaintenanceAttachments({ ticketId }: { ticketId: string }) {
+  const [attachments, setAttachments] = useState<MaintenanceAttachment[]>([]);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [openingId, setOpeningId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void getMaintenanceAttachments(ticketId)
+      .then((items) => {
+        if (!cancelled) {
+          setAttachments(items);
+          setError("");
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAttachments([]);
+          setError("Impossible de charger les photos de la demande.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ticketId]);
+
+  async function openAttachment(attachment: MaintenanceAttachment) {
+    setOpeningId(attachment.id);
+    setError("");
+
+    try {
+      const url = await getMaintenanceAttachmentUrl(attachment);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch {
+      setError("Impossible d’ouvrir la photo.");
+    } finally {
+      setOpeningId(null);
+    }
+  }
+
+  return (
+    <section className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+      <h3 className="font-semibold text-[var(--foreground)]">Photos jointes</h3>
+      {loading ? <p className="mt-3 text-sm text-[var(--muted)]">Chargement des photos...</p> : null}
+      {!loading && attachments.length === 0 && !error ? (
+        <p className="mt-3 text-sm text-[var(--muted)]">Aucune photo jointe.</p>
+      ) : null}
+      {attachments.length > 0 ? (
+        <div className="mt-3 grid gap-2">
+          {attachments.map((attachment) => (
+            <button
+              className="btn-secondary flex items-center justify-between gap-3 text-left"
+              disabled={openingId === attachment.id}
+              key={attachment.id}
+              onClick={() => void openAttachment(attachment)}
+              type="button"
+            >
+              <span className="min-w-0 truncate">{attachment.fileName}</span>
+              <span className="shrink-0">{openingId === attachment.id ? "Ouverture..." : "Ouvrir"}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {error ? <p className="mt-3 text-sm font-semibold text-[color:var(--red)]">{error}</p> : null}
+    </section>
   );
 }
 
