@@ -6,7 +6,7 @@ const settingsSections = [
     title: "Compte",
   },
   {
-    description: "Habixa utilise le Québec et le dollar canadien comme région et devise par défaut pour le MVP.",
+    description: "Nexbail utilise le Québec et le dollar canadien comme région et devise par défaut pour le MVP.",
     title: "Région et devise",
   },
   {
@@ -21,7 +21,7 @@ const settingsSections = [
 
 export default function SettingsPage() {
   return (
-    <RouteShell title="Paramètres" description="Centralisez les préférences de votre espace Habixa.">
+    <RouteShell title="Paramètres" description="Centralisez les préférences de votre espace Nexbail.">
       <section className="grid gap-4 md:grid-cols-2">
         {settingsSections.map((section) => (
           <article key={section.title} className="rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-5">

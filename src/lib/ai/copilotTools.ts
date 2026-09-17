@@ -308,7 +308,7 @@ async function selectRows(query: PromiseLike<{ data: unknown[] | null; error: { 
 
   if (error) {
     console.error(
-      "[Habixa Copilot] Lecture Supabase échouée.",
+      "[Nexbail Copilot] Lecture Supabase échouée.",
       process.env.NODE_ENV === "production"
         ? { code: error.code, table }
         : { code: error.code, details: error.details, hint: error.hint, message: error.message, table },

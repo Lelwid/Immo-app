@@ -260,10 +260,10 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
       {!compact ? (
         <Link href="/dashboard" className="flex shrink-0 items-center gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[color:var(--accent)]/30 bg-white">
-            <Image src="/icons/habixa-icon-192x192.png" alt="Logo Habixa" width={28} height={28} className="h-full w-full object-contain" />
+            <Image src="/icons/nexbail-icon-192x192.png" alt="Logo Nexbail" width={28} height={28} className="h-full w-full object-contain" />
           </div>
           <div className="hidden min-w-0 sm:block">
-            <p className="truncate text-sm font-semibold leading-tight text-[var(--foreground)]">Habixa</p>
+            <p className="truncate text-sm font-semibold leading-tight text-[var(--foreground)]">Nexbail</p>
             <p className="truncate text-xs leading-tight text-[var(--muted)]">Portefeuille investisseurs</p>
           </div>
         </Link>

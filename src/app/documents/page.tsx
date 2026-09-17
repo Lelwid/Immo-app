@@ -373,7 +373,7 @@ export default function DocumentsPage() {
       setAnalysisStage("success");
     } catch (error) {
       if (error instanceof DocumentAnalysisRequestError) {
-        console.error("[Habixa AI] Analyse du document échouée.", {
+        console.error("[Nexbail AI] Analyse du document échouée.", {
           code: error.code,
           details: error.details,
           message: error.message,
@@ -895,7 +895,7 @@ function DocumentDrawer({
             <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-[var(--foreground)]">Habixa AI</p>
+                  <p className="text-sm font-semibold text-[var(--foreground)]">Nexbail AI</p>
                   <p className="mt-1 text-sm text-[var(--muted)]">
                     {getAnalysisStatusMessage(analysisStage, leaseExtractionRecord)}
                   </p>
@@ -918,7 +918,7 @@ function DocumentDrawer({
                     </button>
                   ) : null}
                   <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={analysisLoading} onClick={() => onAnalyze(Boolean(leaseExtractionRecord))} type="button">
-                    {analysisLoading ? "Analyse..." : leaseExtractionRecord ? "Analyser de nouveau" : "Analyser avec Habixa AI"}
+                    {analysisLoading ? "Analyse..." : leaseExtractionRecord ? "Analyser de nouveau" : "Analyser avec Nexbail AI"}
                   </button>
                 </div>
               </div>
@@ -1008,7 +1008,7 @@ function getAnalysisStatusMessage(stage: DocumentAnalysisStage, extractionRecord
   }
 
   if (stage === "analyzing") {
-    return "Habixa AI analyse le bail…";
+    return "Nexbail AI analyse le bail…";
   }
 
   if (stage === "error") {
@@ -1254,7 +1254,7 @@ function LeaseExtractionValidationModal({
       >
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-semibold uppercase text-[var(--muted)]">Habixa AI</p>
+            <p className="text-sm font-semibold uppercase text-[var(--muted)]">Nexbail AI</p>
             <h2 className="mt-1 text-2xl font-semibold">Informations détectées</h2>
             <p className="mt-2 text-sm text-[var(--muted)]">
               Vérifiez les champs proposés depuis {document.name}. Aucune donnée métier n&apos;est modifiée avant confirmation.
@@ -1364,7 +1364,7 @@ function LeaseExtractionValidationModal({
             <div className="rounded-lg border border-[color:var(--yellow)]/30 bg-[color:var(--yellow)]/10 p-4">
               <p className="text-sm font-semibold text-[var(--foreground)]">Locataire existant détecté</p>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                {getTenantDisplayName(duplicateTenant)} semble correspondre. Par défaut, Habixa utilisera ce locataire au lieu de créer un doublon.
+                {getTenantDisplayName(duplicateTenant)} semble correspondre. Par défaut, Nexbail utilisera ce locataire au lieu de créer un doublon.
               </p>
               <label className="mt-3 flex items-center gap-2 text-sm font-semibold text-[var(--muted)]">
                 <input
@@ -1519,7 +1519,7 @@ function createLeaseExtractionForm(extraction: LeaseExtraction, document: Proper
 
 function buildLeaseExtractionNotes(form: LeaseExtractionForm) {
   const lines = [
-    "Créé à partir d'un bail analysé par Habixa AI.",
+    "Créé à partir d'un bail analysé par Nexbail AI.",
     form.landlordName ? `Locateur: ${form.landlordName}` : "",
     form.landlordPhone ? `Téléphone du locateur: ${form.landlordPhone}` : "",
     form.landlordEmail ? `Courriel du locateur: ${form.landlordEmail}` : "",

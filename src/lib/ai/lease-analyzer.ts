@@ -90,7 +90,7 @@ async function analyzeWithOpenAi(input: LeaseAnalyzerInput, model: string, apiKe
   if (!response.ok) {
     const cause = await getOpenAiErrorCause(response);
 
-    throw new HabixaAnalysisError(getOpenAiErrorCode(response.status, cause), "Habixa AI n'a pas pu analyser ce document.", {
+    throw new HabixaAnalysisError(getOpenAiErrorCode(response.status, cause), "Nexbail AI n'a pas pu analyser ce document.", {
       cause,
       step: "openai_request",
     });
@@ -100,13 +100,13 @@ async function analyzeWithOpenAi(input: LeaseAnalyzerInput, model: string, apiKe
   const outputText = getOpenAiOutputText(payload);
 
   if (!outputText) {
-    throw new HabixaAnalysisError("AI_SCHEMA_ERROR", "Habixa AI n'a pas retourné de résultat exploitable.", { step: "openai_response" });
+    throw new HabixaAnalysisError("AI_SCHEMA_ERROR", "Nexbail AI n'a pas retourné de résultat exploitable.", { step: "openai_response" });
   }
 
   try {
     return normalizeLeaseAnalysis(JSON.parse(outputText));
   } catch (error) {
-    throw new HabixaAnalysisError("AI_SCHEMA_ERROR", "Habixa AI n'a pas retourné un JSON valide.", { cause: error, step: "ai_schema_validation" });
+    throw new HabixaAnalysisError("AI_SCHEMA_ERROR", "Nexbail AI n'a pas retourné un JSON valide.", { cause: error, step: "ai_schema_validation" });
   }
 }
 
@@ -119,7 +119,7 @@ function buildPrompt(input: LeaseAnalyzerInput) {
   ].filter(Boolean);
 
   return [
-    "Tu analyses des documents locatifs pour Habixa.",
+    "Tu analyses des documents locatifs pour Nexbail.",
     input.images?.length
       ? `Le bail contient ${input.images.length} page${input.images.length > 1 ? "s" : ""} photo jointe${input.images.length > 1 ? "s" : ""}. Analyse-les dans l'ordre des pages.`
       : "",

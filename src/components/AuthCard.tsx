@@ -59,7 +59,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     if (isSignup) {
       if (result.confirmationRequired) {
         setMessageTone("success");
-        setMessage("Vérifiez votre courriel pour confirmer votre compte, puis revenez dans Habixa.");
+        setMessage("Vérifiez votre courriel pour confirmer votre compte, puis revenez dans Nexbail.");
         return;
       }
 
@@ -90,7 +90,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-8 text-[var(--foreground)]">
       <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
         <div className="mb-6">
-          <p className="text-sm font-medium text-[var(--muted)]">Habixa</p>
+          <p className="text-sm font-medium text-[var(--muted)]">Nexbail</p>
           <h1 className="mt-1 text-3xl font-semibold">
             {isReset ? "Mot de passe oublié" : isSignup ? "Créer un compte" : "Connexion"}
           </h1>

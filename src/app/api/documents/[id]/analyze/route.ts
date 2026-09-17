@@ -725,11 +725,11 @@ function isMissingExtractionMetadataColumnError(error: unknown) {
 
 function logAnalysisStep(step: AnalysisStep, metadata: Record<string, unknown>) {
   if (process.env.NODE_ENV === "production") {
-    console.info("[Habixa AI]", { step });
+    console.info("[Nexbail AI]", { step });
     return;
   }
 
-  console.info("[Habixa AI]", {
+  console.info("[Nexbail AI]", {
     step,
     ...metadata,
   });
@@ -737,11 +737,11 @@ function logAnalysisStep(step: AnalysisStep, metadata: Record<string, unknown>) 
 
 function logAnalysisError(step: string, error: HabixaAnalysisError) {
   if (process.env.NODE_ENV === "production") {
-    console.error("[Habixa AI]", { code: error.code, step });
+    console.error("[Nexbail AI]", { code: error.code, step });
     return;
   }
 
-  console.error("[Habixa AI]", {
+  console.error("[Nexbail AI]", {
     cause: sanitizeCause(error.causeDetail),
     code: error.code,
     message: error.message,

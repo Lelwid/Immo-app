@@ -259,7 +259,7 @@ export default function OnboardingPage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-medium text-[var(--muted)]">Configuration initiale</p>
-              <h1 className="mt-1 text-3xl font-semibold">Bienvenue dans Habixa</h1>
+              <h1 className="mt-1 text-3xl font-semibold">Bienvenue dans Nexbail</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">
                 Configurez rapidement vos immeubles, locataires, baux, paiements et entretiens pour démarrer avec une base claire.
               </p>
@@ -336,7 +336,7 @@ export default function OnboardingPage() {
 function WelcomeStep() {
   return (
     <div>
-      <h2 className="text-2xl font-semibold">Bienvenue dans Habixa</h2>
+      <h2 className="text-2xl font-semibold">Bienvenue dans Nexbail</h2>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-[var(--muted)]">
         L’application vous aide à gérer vos immeubles, locataires, baux, paiements, documents et demandes d’entretien depuis un seul tableau de bord.
       </p>

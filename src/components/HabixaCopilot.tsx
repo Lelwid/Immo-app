@@ -35,7 +35,7 @@ export function HabixaCopilot() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<CopilotMessage[]>(() => [
     {
-      content: "Bonjour, je peux répondre à vos questions sur votre portefeuille Habixa.",
+      content: "Bonjour, je peux répondre à vos questions sur votre portefeuille Nexbail.",
       id: createMessageId(),
       role: "assistant",
     },
@@ -85,8 +85,8 @@ export function HabixaCopilot() {
         },
       ]);
     } catch (requestError) {
-      console.error("[Habixa Copilot]", requestError);
-      setError("Impossible de joindre Habixa Copilot.");
+      console.error("[Nexbail Copilot]", requestError);
+      setError("Impossible de joindre Nexbail Copilot.");
     } finally {
       pendingRef.current = false;
       setSending(false);
@@ -96,7 +96,7 @@ export function HabixaCopilot() {
   return (
     <>
       <button
-        aria-label="Ouvrir Habixa Copilot"
+        aria-label="Ouvrir Nexbail Copilot"
         className="fixed bottom-5 right-5 z-50 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[color:var(--accent)]/45 bg-[color:var(--accent)] text-white shadow-[0_18px_44px_rgba(37,99,235,0.42)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_54px_rgba(37,99,235,0.5)]"
         onClick={() => setOpen(true)}
         type="button"
@@ -112,12 +112,12 @@ export function HabixaCopilot() {
                 <AppIcon name="sparkles" size={18} />
               </span>
               <div className="min-w-0">
-                <h2 className="truncate text-sm font-bold text-[var(--foreground)]">Habixa Copilot</h2>
+                <h2 className="truncate text-sm font-bold text-[var(--foreground)]">Nexbail Copilot</h2>
                 <p className="truncate text-xs text-[var(--muted)]">{isSupabaseMode ? "Données Supabase sécurisées" : "Mode local / démo"}</p>
               </div>
             </div>
             <button
-              aria-label="Fermer Habixa Copilot"
+              aria-label="Fermer Nexbail Copilot"
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-[var(--foreground)]"
               onClick={() => setOpen(false)}
               type="button"

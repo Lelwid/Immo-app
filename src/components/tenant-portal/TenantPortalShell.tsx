@@ -77,10 +77,10 @@ function TenantPortalBrand({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/locataire" className="flex min-w-0 items-center gap-3">
       <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white">
-        <Image src="/icons/habixa-icon-192x192.png" alt="Logo Habixa" width={40} height={40} className="h-full w-full object-contain" />
+        <Image src="/icons/nexbail-icon-192x192.png" alt="Logo Nexbail" width={40} height={40} className="h-full w-full object-contain" />
       </span>
       <span className="min-w-0">
-        <span className="block truncate text-base font-bold">Habixa</span>
+        <span className="block truncate text-base font-bold">Nexbail</span>
         <span className="block truncate text-xs text-[var(--muted)]">{compact ? "Portail locataire" : "Espace locataire"}</span>
       </span>
     </Link>

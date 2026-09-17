@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!process.env.OPENAI_API_KEY) {
-    return NextResponse.json({ error: "Habixa Copilot n'est pas encore configuré." }, { status: 503 });
+    return NextResponse.json({ error: "Nexbail Copilot n'est pas encore configuré." }, { status: 503 });
   }
 
   try {
@@ -105,8 +105,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ message: "Je n'ai pas pu finaliser la réponse avec les données disponibles. Reformulez la question ou précisez l'entité." });
   } catch (error) {
-    console.error("[Habixa Copilot] Requête échouée.", sanitizeError(error));
-    return NextResponse.json({ error: "Impossible d'interroger Habixa Copilot." }, { status: 500 });
+    console.error("[Nexbail Copilot] Requête échouée.", sanitizeError(error));
+    return NextResponse.json({ error: "Impossible d'interroger Nexbail Copilot." }, { status: 500 });
   }
 }
 
@@ -187,7 +187,7 @@ async function callOpenAi(input: unknown[]) {
   const payload = await response.json().catch(() => null);
 
   if (!response.ok) {
-    console.error("[Habixa Copilot] OpenAI error.", sanitizeError(payload));
+    console.error("[Nexbail Copilot] OpenAI error.", sanitizeError(payload));
     throw new Error("OpenAI request failed.");
   }
 
@@ -196,7 +196,7 @@ async function callOpenAi(input: unknown[]) {
 
 function buildSystemPrompt() {
   return [
-    "Tu es Habixa Copilot, un assistant contextuel read-only pour un SaaS de gestion immobilière.",
+    "Tu es Nexbail Copilot, un assistant contextuel read-only pour un SaaS de gestion immobilière.",
     `Date actuelle: ${new Date().toISOString().slice(0, 10)}.`,
     "Réponds en français canadien, de façon concise et utile.",
     "Tu dois utiliser les outils fournis pour consulter les données du portefeuille avant de répondre à une question factuelle.",

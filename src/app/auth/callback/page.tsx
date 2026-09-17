@@ -39,7 +39,7 @@ function AuthCallbackContent() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-8 text-[var(--foreground)]">
       <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-center">
-        <p className="text-sm font-medium text-[var(--muted)]">Habixa</p>
+        <p className="text-sm font-medium text-[var(--muted)]">Nexbail</p>
         <h1 className="mt-2 text-2xl font-semibold">Confirmation du courriel</h1>
         {errorMessage ? (
           <>
@@ -52,7 +52,7 @@ function AuthCallbackContent() {
           </>
         ) : (
           <p className="mt-4 text-sm text-[var(--muted)]" role="status">
-            Confirmation en cours… Vous serez redirigé vers Habixa.
+            Confirmation en cours… Vous serez redirigé vers Nexbail.
           </p>
         )}
       </section>

@@ -150,7 +150,7 @@ function getOwnerName(metadata: Record<string, unknown>) {
     ? fullName
     : typeof name === "string" && name.trim()
       ? name
-      : "Habixa";
+      : "Nexbail";
 }
 
 function invitationError(code: string, error: string, status: number) {

@@ -1,14 +1,14 @@
 {
-  "name": "Habixa",
-  "short_name": "Habixa",
+  "name": "Nexbail",
+  "short_name": "Nexbail",
   "icons": [
     {
-      "src": "/icons/habixa-icon-192x192.png",
+      "src": "/icons/nexbail-icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png"
     },
     {
-      "src": "/icons/habixa-icon-512x512.png",
+      "src": "/icons/nexbail-icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png"
     }

@@ -30,17 +30,17 @@ export function getPublicAnalysisMessage(error: HabixaAnalysisError) {
   const development = process.env.NODE_ENV !== "production";
 
   if (development && error.code === "OPENAI_NOT_CONFIGURED") {
-    return "Habixa AI n'est pas configuré. Vérifiez OPENAI_API_KEY.";
+    return "Nexbail AI n'est pas configuré. Vérifiez OPENAI_API_KEY.";
   }
 
   if (development && error.code === "AI_MODEL_NOT_CONFIGURED") {
-    return "Habixa AI n'est pas configuré. Vérifiez HABIXA_AI_MODEL.";
+    return "Nexbail AI n'est pas configuré. Vérifiez HABIXA_AI_MODEL.";
   }
 
   const messages: Record<DocumentAnalysisErrorCode, string> = {
-    AI_ANALYSIS_ERROR: "Habixa AI n'a pas pu analyser ce document.",
-    AI_MODEL_NOT_CONFIGURED: "Habixa AI est temporairement indisponible.",
-    AI_SCHEMA_ERROR: "Habixa AI n'a pas retourné un résultat exploitable.",
+    AI_ANALYSIS_ERROR: "Nexbail AI n'a pas pu analyser ce document.",
+    AI_MODEL_NOT_CONFIGURED: "Nexbail AI est temporairement indisponible.",
+    AI_SCHEMA_ERROR: "Nexbail AI n'a pas retourné un résultat exploitable.",
     DATABASE_ERROR: "Impossible d'enregistrer l'analyse du document.",
     DOCUMENT_FILE_MISSING: "Aucun fichier téléversé pour ce document.",
     DOCUMENT_NOT_FOUND: "Document introuvable ou inaccessible.",
@@ -49,10 +49,10 @@ export function getPublicAnalysisMessage(error: HabixaAnalysisError) {
     OCR_ERROR: "La reconnaissance du document a échoué. Réessayez dans quelques instants.",
     OCR_NOT_CONFIGURED: "Ce document semble être numérisé. Le service OCR n'est pas encore configuré.",
     OCR_REQUIRED: "Ce document semble être numérisé. Le service OCR est requis.",
-    OPENAI_AUTH_ERROR: "Habixa AI est temporairement indisponible.",
-    OPENAI_MODEL_ERROR: "Habixa AI est temporairement indisponible.",
-    OPENAI_NOT_CONFIGURED: "Habixa AI est temporairement indisponible.",
-    OPENAI_RATE_LIMIT: "Habixa AI est temporairement surchargé. Réessayez dans quelques instants.",
+    OPENAI_AUTH_ERROR: "Nexbail AI est temporairement indisponible.",
+    OPENAI_MODEL_ERROR: "Nexbail AI est temporairement indisponible.",
+    OPENAI_NOT_CONFIGURED: "Nexbail AI est temporairement indisponible.",
+    OPENAI_RATE_LIMIT: "Nexbail AI est temporairement surchargé. Réessayez dans quelques instants.",
     PDF_INVALID: "Impossible de lire ce document.",
     PDF_READ_ERROR: "Impossible de lire ce document.",
     UNAUTHORIZED: "Session invalide.",
