@@ -31,7 +31,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   applicationName: "Habixa",
-  title: "Tableau de bord Triplex Saint-Sauveur",
+  title: "Habixa — Gestion immobilière",
   description: "Tableau de bord MVP SaaS pour la gestion immobilière locative au Québec.",
   manifest: "/site.webmanifest",
   icons: {
