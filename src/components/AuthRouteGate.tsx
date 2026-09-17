@@ -1,11 +1,12 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
 import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { DEMO_AUTH_KEY, useAuth } from "@/lib/auth/AuthProvider";
 import { getDataMode } from "@/lib/data/dataMode";
+import { hasActiveTenantPortalAccount } from "@/lib/data/tenantPortalService";
 import { STORAGE_KEY } from "@/lib/local-storage";
 import { ONBOARDING_KEY, ONBOARDING_TRANSITION_KEY, shouldRequireOnboarding } from "@/lib/onboardingDecision";
 
@@ -30,6 +31,10 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const redirectTargetRef = useRef<string | null>(null);
+  const [tenantRoleCheck, setTenantRoleCheck] = useState<{
+    key: string;
+    role: "owner" | "tenant" | "error";
+  }>({ key: "", role: "owner" });
   const { configured, loading, user } = useAuth();
   const isPublic = publicRoutes.has(pathname);
   const isTenantPortal = pathname === "/locataire" || pathname.startsWith("/locataire/");
@@ -37,11 +42,19 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
   const isSignInRoute = pathname === "/connexion" || pathname === "/inscription";
   const isProtected = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
   const isTenantProtected = isTenantPortal;
+  const isTenantInvitation = pathname === "/locataire/invitation";
   const dataMode = typeof window !== "undefined" ? getDataMode() : "local";
   const onboardingTransitionActive =
     typeof window !== "undefined" && Boolean(window.sessionStorage.getItem(ONBOARDING_TRANSITION_KEY));
   const demoAccess = !configured && typeof window !== "undefined" && window.localStorage.getItem(DEMO_AUTH_KEY) === "true";
   const authenticated = Boolean(user) || demoAccess;
+  const shouldCheckTenantRole = configured && Boolean(user) && dataMode === "supabase" && (isProtected || (isTenantPortal && !isTenantInvitation));
+  const tenantRoleCheckKey = shouldCheckTenantRole ? `${user?.id ?? ""}:${pathname}` : "";
+  const tenantRole = !shouldCheckTenantRole
+    ? "idle"
+    : tenantRoleCheck.key === tenantRoleCheckKey
+      ? tenantRoleCheck.role
+      : "loading";
   const shouldCheckSupabasePortfolio =
     configured &&
     Boolean(user) &&
@@ -75,6 +88,32 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    let cancelled = false;
+
+    if (!shouldCheckTenantRole) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void hasActiveTenantPortalAccount()
+      .then((isTenant) => {
+        if (!cancelled) {
+          setTenantRoleCheck({ key: tenantRoleCheckKey, role: isTenant ? "tenant" : "owner" });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTenantRoleCheck({ key: tenantRoleCheckKey, role: "error" });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldCheckTenantRole, tenantRoleCheckKey]);
+
+  useEffect(() => {
     if (isTenantProtected && !loading && !authenticated) {
       const query = window.location.search.replace(/^\?/, "");
       const currentPath = query ? `${pathname}?${query}` : pathname;
@@ -83,6 +122,24 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
       if (redirectTargetRef.current !== nextTarget) {
         redirectTargetRef.current = nextTarget;
         router.replace(nextTarget);
+      }
+
+      return;
+    }
+
+    if (!loading && authenticated && tenantRole === "tenant" && isProtected) {
+      if (redirectTargetRef.current !== "/locataire") {
+        redirectTargetRef.current = "/locataire";
+        router.replace("/locataire");
+      }
+
+      return;
+    }
+
+    if (!loading && authenticated && tenantRole === "owner" && isTenantPortal && !isTenantInvitation) {
+      if (redirectTargetRef.current !== "/dashboard") {
+        redirectTargetRef.current = "/dashboard";
+        router.replace("/dashboard");
       }
 
       return;
@@ -114,9 +171,9 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
 
     redirectTargetRef.current = decision.to;
     router.replace(decision.to);
-  }, [authenticated, decision, isTenantProtected, loading, onboardingTransitionActive, pathname, portfolioData.properties.length, router, shouldCheckSupabasePortfolio]);
+  }, [authenticated, decision, isProtected, isTenantInvitation, isTenantPortal, isTenantProtected, loading, onboardingTransitionActive, pathname, portfolioData.properties.length, router, shouldCheckSupabasePortfolio, tenantRole]);
 
-  if ((isTenantProtected && loading) || (decision.status === "loading" && !isPublic) || (shouldCheckSupabasePortfolio && portfolioLoading)) {
+  if ((isTenantProtected && loading) || tenantRole === "loading" || (decision.status === "loading" && !isPublic) || (shouldCheckSupabasePortfolio && portfolioLoading)) {
     const loadingContent = (
       <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
         <div className="grid gap-3">
@@ -134,6 +191,17 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     return (
       <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)]">
         <div className="mx-auto max-w-7xl">{loadingContent}</div>
+      </main>
+    );
+  }
+
+  if (tenantRole === "error") {
+    return (
+      <main className="min-h-screen bg-[var(--background)] p-6 text-[var(--foreground)]">
+        <section className="mx-auto max-w-2xl rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+          <p className="text-sm font-semibold text-[color:var(--red)]">Impossible de vérifier votre type d’accès.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">Actualisez la page dans quelques instants.</p>
+        </section>
       </main>
     );
   }
@@ -165,6 +233,10 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
   }
 
   if (decision.status === "redirect") {
+    return null;
+  }
+
+  if ((tenantRole === "tenant" && isProtected) || (tenantRole === "owner" && isTenantPortal && !isTenantInvitation)) {
     return null;
   }
 

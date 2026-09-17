@@ -15,7 +15,7 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
-  signUpWithEmail: (email: string, password: string) => Promise<{ error?: string; confirmationRequired?: boolean }>;
+  signUpWithEmail: (email: string, password: string, redirectPath?: string) => Promise<{ error?: string; confirmationRequired?: boolean }>;
   signInWithGoogle: (redirectPath?: string) => Promise<{ error?: string }>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
@@ -70,7 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
         return error ? { error: error.message } : {};
       },
-      async signUpWithEmail(email, password) {
+      async signUpWithEmail(email, password, redirectPath = "/onboarding") {
         if (!supabase) {
           return { error: "Supabase n’est pas encore configuré." };
         }
@@ -79,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email: email.trim(),
           password,
           options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=/onboarding`,
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(redirectPath)}`,
           },
         });
 

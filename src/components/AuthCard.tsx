@@ -18,6 +18,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
   const [submitting, setSubmitting] = useState(false);
   const isReset = mode === "reset";
   const isSignup = mode === "inscription";
+  const redirectPath = getSafeRedirect(searchParams.get("redirect"), isSignup ? "/onboarding" : "/dashboard");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,7 +39,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     const result: { error?: string; confirmationRequired?: boolean } = isReset
       ? await resetPassword(email)
       : isSignup
-        ? await signUpWithEmail(email, password)
+        ? await signUpWithEmail(email, password, redirectPath)
         : await signInWithEmail(email, password);
 
     setSubmitting(false);
@@ -62,16 +63,16 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
         return;
       }
 
-      router.replace("/onboarding");
+      router.replace(redirectPath);
       return;
     }
 
-    router.replace(getSafeRedirect(searchParams.get("redirect")));
+    router.replace(redirectPath);
   }
 
   async function loginGoogle() {
     setSubmitting(true);
-    const result = await signInWithGoogle(getSafeRedirect(searchParams.get("redirect")));
+    const result = await signInWithGoogle(redirectPath);
     setSubmitting(false);
 
     if (result.error) {
@@ -82,7 +83,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
 
   function enterDemoMode() {
     window.localStorage.setItem(DEMO_AUTH_KEY, "true");
-    router.replace(getSafeRedirect(searchParams.get("redirect")));
+    router.replace(redirectPath);
   }
 
   return (
@@ -148,7 +149,10 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
         <div className="mt-6 grid gap-2 text-sm text-[var(--muted)]">
           {mode === "connexion" ? (
             <>
-              <Link className="font-semibold text-[color:var(--accent)] hover:underline" href="/inscription">
+              <Link
+                className="font-semibold text-[color:var(--accent)] hover:underline"
+                href={redirectPath === "/dashboard" ? "/inscription" : `/inscription?redirect=${encodeURIComponent(redirectPath)}`}
+              >
                 Créer un compte
               </Link>
               <Link className="font-semibold text-[color:var(--accent)] hover:underline" href="/mot-de-passe-oublie">
@@ -156,7 +160,10 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
               </Link>
             </>
           ) : (
-            <Link className="font-semibold text-[color:var(--accent)] hover:underline" href="/connexion">
+            <Link
+              className="font-semibold text-[color:var(--accent)] hover:underline"
+              href={redirectPath === "/onboarding" ? "/connexion" : `/connexion?redirect=${encodeURIComponent(redirectPath)}`}
+            >
               Retour à la connexion
             </Link>
           )}
@@ -166,9 +173,9 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
   );
 }
 
-function getSafeRedirect(value: string | null) {
+function getSafeRedirect(value: string | null, fallback = "/dashboard") {
   if (!value || !value.startsWith("/") || value.startsWith("//")) {
-    return "/dashboard";
+    return fallback;
   }
 
   return value;

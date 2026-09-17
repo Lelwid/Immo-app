@@ -52,7 +52,7 @@ function AuthCallbackContent() {
           </>
         ) : (
           <p className="mt-4 text-sm text-[var(--muted)]" role="status">
-            Confirmation en cours… Vous serez dirigé vers la configuration de votre portefeuille.
+            Confirmation en cours… Vous serez redirigé vers Habixa.
           </p>
         )}
       </section>

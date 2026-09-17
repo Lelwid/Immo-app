@@ -159,6 +159,14 @@ export async function getTenantPortalSnapshot(): Promise<TenantPortalSnapshot> {
   };
 }
 
+export async function hasActiveTenantPortalAccount() {
+  if (!canUseSupabase()) {
+    return false;
+  }
+
+  return (await getTenantPortalAccounts()).length > 0;
+}
+
 export async function createTenantMaintenanceRequest(input: TenantMaintenanceInput, files: File[] = []) {
   if (!canUseSupabase()) {
     return createLocalTenantMaintenanceRequest(input);
