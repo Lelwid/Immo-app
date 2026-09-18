@@ -2,7 +2,6 @@ import "server-only";
 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { PDFParse } from "pdf-parse";
 import { getOCRProvider } from "@/lib/ocr";
 import { HabixaAnalysisError } from "@/lib/server/habixaAiErrors";
 
@@ -19,6 +18,9 @@ const minimumUsefulTextLength = 120;
 const minimumTextPerPage = 60;
 const maxPdfSizeBytes = 25 * 1024 * 1024;
 let pdfWorkerConfigured = false;
+let pdfParseConstructorPromise: Promise<PdfParseConstructor> | null = null;
+
+type PdfParseConstructor = (typeof import("pdf-parse"))["PDFParse"];
 
 export async function extractPdfText(file: Buffer, options: { fileName?: string | null; mimeType?: string | null } = {}): Promise<PdfTextExtractionResult> {
   if (!isPdf(options.mimeType, options.fileName, file)) {
@@ -62,7 +64,8 @@ export async function extractPdfText(file: Buffer, options: { fileName?: string 
 }
 
 async function extractNativePdfText(file: Buffer) {
-  configurePdfWorker();
+  const PDFParse = await loadPdfParse();
+  configurePdfWorker(PDFParse);
 
   const parser = new PDFParse({ data: file });
 
@@ -85,7 +88,25 @@ async function extractNativePdfText(file: Buffer) {
   }
 }
 
-function configurePdfWorker() {
+async function loadPdfParse() {
+  if (!pdfParseConstructorPromise) {
+    pdfParseConstructorPromise = (async () => {
+      const canvas = await import("@napi-rs/canvas");
+      const globals = globalThis as unknown as Record<"DOMMatrix" | "ImageData" | "Path2D", unknown>;
+
+      globals.DOMMatrix ??= canvas.DOMMatrix;
+      globals.ImageData ??= canvas.ImageData;
+      globals.Path2D ??= canvas.Path2D;
+
+      const pdfParse = await import("pdf-parse");
+      return pdfParse.PDFParse;
+    })();
+  }
+
+  return pdfParseConstructorPromise;
+}
+
+function configurePdfWorker(PDFParse: PdfParseConstructor) {
   if (pdfWorkerConfigured) {
     return;
   }
