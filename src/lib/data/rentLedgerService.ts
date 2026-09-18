@@ -52,6 +52,13 @@ export type RecordPaymentInput = {
   notes?: string;
 };
 
+export type PaymentTransactionUpdateInput = {
+  receivedAt: string;
+  method: PaymentMethod;
+  reference?: string;
+  notes?: string;
+};
+
 type SupabaseRentChargeRow = {
   id: string;
   property_id: string;
@@ -149,6 +156,85 @@ export async function getPaymentAllocations(): Promise<PaymentAllocation[]> {
   }
 
   return data.map(fromSupabasePaymentAllocation);
+}
+
+export async function updatePaymentTransaction(
+  transactionId: string,
+  input: PaymentTransactionUpdateInput,
+): Promise<PaymentTransaction> {
+  if (!input.receivedAt) {
+    throw new Error("La date de réception est obligatoire.");
+  }
+
+  if (input.receivedAt > getTodayIsoDate()) {
+    throw new Error("La date de réception ne peut pas être dans le futur.");
+  }
+
+  const update = {
+    received_at: input.receivedAt,
+    method: input.method,
+    reference: input.reference?.trim() || null,
+    notes: input.notes?.trim() || null,
+  };
+
+  if (canUseSupabase()) {
+    const { data, error } = await supabase!
+      .from(paymentTransactionsTable)
+      .update(update)
+      .eq("id", transactionId)
+      .select(paymentTransactionSelectColumns)
+      .single();
+
+    if (error || !data) {
+      throw new Error("Impossible de corriger la transaction.");
+    }
+
+    return fromSupabasePaymentTransaction(data);
+  }
+
+  const store = loadLocalStore();
+  const existing = store.paymentTransactions.find((transaction) => transaction.id === transactionId);
+
+  if (!existing) {
+    throw new Error("Impossible de corriger la transaction.");
+  }
+
+  const nextTransaction: PaymentTransaction = {
+    ...existing,
+    receivedAt: input.receivedAt,
+    method: input.method,
+    reference: input.reference?.trim() ?? "",
+    notes: input.notes?.trim() ?? "",
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveLocalStore({
+    ...store,
+    paymentTransactions: store.paymentTransactions.map((transaction) =>
+      transaction.id === transactionId ? nextTransaction : transaction,
+    ),
+  });
+
+  return nextTransaction;
+}
+
+export async function cancelPaymentTransaction(transactionId: string): Promise<void> {
+  if (canUseSupabase()) {
+    const { error } = await supabase!.from(paymentTransactionsTable).delete().eq("id", transactionId);
+
+    if (error) {
+      throw new Error("Impossible d’annuler la transaction.");
+    }
+
+    return;
+  }
+
+  const store = loadLocalStore();
+  saveLocalStore({
+    ...store,
+    paymentTransactions: store.paymentTransactions.filter((transaction) => transaction.id !== transactionId),
+    paymentAllocations: store.paymentAllocations.filter((allocation) => allocation.transactionId !== transactionId),
+  });
 }
 
 export function buildRentLedger(store: LocalStore, today = getTodayIsoDate()): RentLedger {

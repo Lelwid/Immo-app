@@ -5,9 +5,12 @@ import { RouteShell } from "@/app/components/route-shell";
 import { AppIcon, type IconName } from "@/components/AppIcon";
 import { getTodayIsoDate } from "@/lib/data/paymentSideEffectsService";
 import {
+  cancelPaymentTransaction,
   getRentLedger,
   getRentLedgerSummary,
   recordPaymentTransaction,
+  updatePaymentTransaction,
+  type PaymentTransactionUpdateInput,
   type RentChargeRow,
   type RentLedger,
 } from "@/lib/data/rentLedgerService";
@@ -185,6 +188,12 @@ export default function PaiementsPage() {
     }
   }
 
+  async function handleTransactionChanged() {
+    await refresh();
+    await reloadLedger();
+    setViewingChargeId(null);
+  }
+
   function openRegisterModal(row?: RentChargeRow) {
     setOpenMenuRowId(null);
     setErrorMessage("");
@@ -325,6 +334,7 @@ export default function PaiementsPage() {
             row={viewingCharge}
             store={displayStore}
             onCancel={() => setViewingChargeId(null)}
+            onTransactionChanged={handleTransactionChanged}
           />
         ) : null}
       </section>
@@ -520,8 +530,7 @@ function PaymentTableRow({
         </button>
         {openMenuRowId === row.id ? (
           <div className="absolute right-0 top-9 z-20 w-52 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2 text-left shadow-lg shadow-black/20">
-            <MenuButton label="Corriger une transaction" onClick={() => onOpenDetails(row)} />
-            <MenuButton label="Annuler une transaction" onClick={() => onOpenDetails(row)} />
+            <MenuButton label="Gérer les transactions" onClick={() => onOpenDetails(row)} />
             <MenuButton label="Consulter les détails" onClick={() => onOpenDetails(row)} />
           </div>
         ) : null}
@@ -785,13 +794,52 @@ function ChargeDetailsModal({
   row,
   store,
   onCancel,
+  onTransactionChanged,
 }: {
   ledger: RentLedger;
   row: RentChargeRow;
   store: LocalStore;
   onCancel: () => void;
+  onTransactionChanged: () => Promise<void>;
 }) {
   const history = getChargeTransactionHistory(row, ledger.allocations, ledger.transactions);
+  const [editingTransactionId, setEditingTransactionId] = useState<string | null>(null);
+  const [cancellingTransactionId, setCancellingTransactionId] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState("");
+  const editingTransaction = editingTransactionId
+    ? ledger.transactions.find((transaction) => transaction.id === editingTransactionId) ?? null
+    : null;
+
+  async function handleCorrection(input: PaymentTransactionUpdateInput) {
+    if (!editingTransaction) return;
+    setIsSaving(true);
+    setErrorMessage("");
+
+    try {
+      await updatePaymentTransaction(editingTransaction.id, input);
+      await onTransactionChanged();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Impossible de corriger la transaction.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  async function handleCancellation() {
+    if (!cancellingTransactionId) return;
+    setIsSaving(true);
+    setErrorMessage("");
+
+    try {
+      await cancelPaymentTransaction(cancellingTransactionId);
+      await onTransactionChanged();
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Impossible d’annuler la transaction.");
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
@@ -820,6 +868,11 @@ function ChargeDetailsModal({
           <InfoItem label="Échéance" value={formatShortDate(row.dueDate)} />
           <InfoItem label="Dernier paiement" value={row.lastPaymentAt ? formatShortDate(row.lastPaymentAt) : "—"} />
         </div>
+        {errorMessage ? (
+          <p className="mt-4 rounded-lg border border-[color:var(--red)]/35 bg-[color:var(--red)]/10 px-4 py-3 text-sm font-semibold text-[color:var(--red)]">
+            {errorMessage}
+          </p>
+        ) : null}
         <div className="mt-5 rounded-lg border border-[var(--border)]">
           <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
             <p className="text-sm font-semibold text-[var(--foreground)]">Historique des paiements</p>
@@ -835,12 +888,104 @@ function ChargeDetailsModal({
                   {getPaymentMethodLabel(entry.method)}
                   {entry.reference ? ` · Réf. ${entry.reference}` : ""}
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setEditingTransactionId(entry.transactionId)} type="button">
+                    Corriger
+                  </button>
+                  <button
+                    className="rounded-md border border-[color:var(--red)]/35 px-3 py-1.5 text-xs font-semibold text-[color:var(--red)] hover:bg-[color:var(--red)]/10"
+                    onClick={() => setCancellingTransactionId(entry.transactionId)}
+                    type="button"
+                  >
+                    Annuler la transaction
+                  </button>
+                </div>
               </div>
             ))}
             {history.length === 0 ? (
               <p className="px-4 py-5 text-sm text-[var(--muted)]">Aucune transaction enregistrée pour ce loyer.</p>
             ) : null}
           </div>
+        </div>
+      </div>
+      {editingTransaction ? (
+        <CorrectTransactionModal
+          isSaving={isSaving}
+          transaction={editingTransaction}
+          onCancel={() => setEditingTransactionId(null)}
+          onSave={handleCorrection}
+        />
+      ) : null}
+      {cancellingTransactionId ? (
+        <ConfirmCancellationModal
+          isSaving={isSaving}
+          onCancel={() => setCancellingTransactionId(null)}
+          onConfirm={handleCancellation}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function CorrectTransactionModal({
+  isSaving,
+  transaction,
+  onCancel,
+  onSave,
+}: {
+  isSaving: boolean;
+  transaction: PaymentTransaction;
+  onCancel: () => void;
+  onSave: (input: PaymentTransactionUpdateInput) => void;
+}) {
+  const [form, setForm] = useState<PaymentTransactionUpdateInput>({
+    receivedAt: transaction.receivedAt,
+    method: transaction.method,
+    reference: transaction.reference ?? "",
+    notes: transaction.notes ?? "",
+  });
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+        <h3 className="text-xl font-semibold text-[var(--foreground)]">Corriger la transaction</h3>
+        <p className="mt-2 text-sm text-[var(--muted)]">Le montant et sa répartition restent inchangés pour préserver l’intégrité du registre.</p>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <TextInput label="Date de réception" type="date" value={form.receivedAt} onChange={(receivedAt) => setForm({ ...form, receivedAt })} />
+          <SelectInput label="Méthode" value={form.method} onChange={(method) => setForm({ ...form, method: method as PaymentMethod })} options={paymentMethods.map((method) => [method.value, method.label])} />
+          <TextInput label="Référence" value={form.reference ?? ""} onChange={(reference) => setForm({ ...form, reference })} />
+          <TextInput label="Notes" value={form.notes ?? ""} onChange={(notes) => setForm({ ...form, notes })} />
+        </div>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button className="btn-secondary" disabled={isSaving} onClick={onCancel} type="button">Fermer</button>
+          <button className="btn-primary" disabled={isSaving || !form.receivedAt} onClick={() => onSave(form)} type="button">
+            {isSaving ? "Enregistrement..." : "Enregistrer la correction"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmCancellationModal({
+  isSaving,
+  onCancel,
+  onConfirm,
+}: {
+  isSaving: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+        <h3 className="text-xl font-semibold text-[var(--foreground)]">Annuler cette transaction?</h3>
+        <p className="mt-3 text-sm text-[var(--muted)]">Ses répartitions seront retirées et les soldes des loyers seront recalculés.</p>
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button className="btn-secondary" disabled={isSaving} onClick={onCancel} type="button">Conserver</button>
+          <button className="rounded-md bg-[color:var(--red)] px-4 py-2 font-semibold text-white disabled:opacity-60" disabled={isSaving} onClick={onConfirm} type="button">
+            {isSaving ? "Annulation..." : "Annuler la transaction"}
+          </button>
         </div>
       </div>
     </div>
@@ -1095,6 +1240,7 @@ function getChargeTransactionHistory(row: RentChargeRow, allocations: PaymentAll
       return transaction
         ? {
             id: allocation.id,
+            transactionId: transaction.id,
             amountAllocated: allocation.amountAllocated,
             method: transaction.method,
             receivedAt: transaction.receivedAt,
@@ -1102,7 +1248,7 @@ function getChargeTransactionHistory(row: RentChargeRow, allocations: PaymentAll
           }
         : null;
     })
-    .filter((entry): entry is { id: string; amountAllocated: number; method: PaymentMethod; receivedAt: string; reference: string } => Boolean(entry))
+    .filter((entry): entry is { id: string; transactionId: string; amountAllocated: number; method: PaymentMethod; receivedAt: string; reference: string } => Boolean(entry))
     .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
 }
 
