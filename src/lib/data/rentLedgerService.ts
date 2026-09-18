@@ -77,6 +77,7 @@ type SupabasePaymentTransactionRow = {
   property_id: string;
   lease_id: string | null;
   tenant_id: string | null;
+  cancelled_at: string | null;
   received_at: string;
   amount_received: number | string;
   method: PaymentMethod | string | null;
@@ -182,6 +183,7 @@ export async function updatePaymentTransaction(
       .from(paymentTransactionsTable)
       .update(update)
       .eq("id", transactionId)
+      .is("cancelled_at", null)
       .select(paymentTransactionSelectColumns)
       .single();
 
@@ -220,9 +222,15 @@ export async function updatePaymentTransaction(
 
 export async function cancelPaymentTransaction(transactionId: string): Promise<void> {
   if (canUseSupabase()) {
-    const { error } = await supabase!.from(paymentTransactionsTable).delete().eq("id", transactionId);
+    const { data, error } = await supabase!
+      .from(paymentTransactionsTable)
+      .update({ cancelled_at: new Date().toISOString() })
+      .eq("id", transactionId)
+      .is("cancelled_at", null)
+      .select("id")
+      .single();
 
-    if (error) {
+    if (error || !data) {
       throw new Error("Impossible d’annuler la transaction.");
     }
 
@@ -232,8 +240,9 @@ export async function cancelPaymentTransaction(transactionId: string): Promise<v
   const store = loadLocalStore();
   saveLocalStore({
     ...store,
-    paymentTransactions: store.paymentTransactions.filter((transaction) => transaction.id !== transactionId),
-    paymentAllocations: store.paymentAllocations.filter((allocation) => allocation.transactionId !== transactionId),
+    paymentTransactions: store.paymentTransactions.map((transaction) =>
+      transaction.id === transactionId ? { ...transaction, cancelledAt: new Date().toISOString() } : transaction,
+    ),
   });
 }
 
@@ -248,7 +257,10 @@ export function buildRentLedger(store: LocalStore, today = getTodayIsoDate()): R
   const legacyLedger = createLegacyTransactionsAndAllocations(store.payments, explicitChargeIds, chargesWithExplicitAllocations);
   const transactions = dedupeById([...legacyLedger.transactions, ...store.paymentTransactions]);
   const allocations = dedupeById([...legacyLedger.allocations, ...store.paymentAllocations]);
-  const rows = charges.map((charge) => toChargeRow(charge, transactions, allocations, store.leases, store.tenants, today)).sort(compareChargeRows);
+  const activeTransactions = transactions.filter((transaction) => !transaction.cancelledAt);
+  const activeTransactionIds = new Set(activeTransactions.map((transaction) => transaction.id));
+  const activeAllocations = allocations.filter((allocation) => activeTransactionIds.has(allocation.transactionId));
+  const rows = charges.map((charge) => toChargeRow(charge, activeTransactions, activeAllocations, store.leases, store.tenants, today)).sort(compareChargeRows);
 
   return {
     charges,
@@ -260,7 +272,7 @@ export function buildRentLedger(store: LocalStore, today = getTodayIsoDate()): R
 
 export function getRentLedgerSummary(ledger: RentLedger, month = getTodayIsoDate().slice(0, 7), today = getTodayIsoDate()): RentLedgerSummary {
   const chargesDueThisMonth = ledger.rows.filter((charge) => charge.dueDate.slice(0, 7) === month);
-  const transactionsThisMonth = ledger.transactions.filter((transaction) => transaction.receivedAt.slice(0, 7) === month);
+  const transactionsThisMonth = ledger.transactions.filter((transaction) => !transaction.cancelledAt && transaction.receivedAt.slice(0, 7) === month);
 
   return {
     currentMonth: month,
@@ -754,7 +766,7 @@ function canUseSupabase() {
 const rentChargeSelectColumns =
   "id,property_id,unit_id,lease_id,tenant_id,period_month,due_date,amount_due,created_at,updated_at";
 const paymentTransactionSelectColumns =
-  "id,property_id,lease_id,tenant_id,received_at,amount_received,method,reference,notes,created_at,updated_at";
+  "id,property_id,lease_id,tenant_id,cancelled_at,received_at,amount_received,method,reference,notes,created_at,updated_at";
 const paymentAllocationSelectColumns =
   "id,transaction_id,rent_charge_id,amount_allocated,created_at";
 
@@ -779,6 +791,7 @@ function fromSupabasePaymentTransaction(row: SupabasePaymentTransactionRow): Pay
     propertyId: row.property_id,
     leaseId: row.lease_id,
     tenantId: row.tenant_id,
+    cancelledAt: row.cancelled_at,
     receivedAt: row.received_at,
     amountReceived: Number(row.amount_received ?? 0),
     method: normalizePaymentMethod(row.method),

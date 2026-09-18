@@ -189,6 +189,17 @@ export const copilotToolDefinitions: ToolDefinition[] = [
   },
   {
     type: "function",
+    name: "get_rent_ledger_summary",
+    description: "Retourne les montants canoniques dus, reçus et restant à recevoir pour un mois, ainsi que les soldes en retard et à recevoir.",
+    parameters: {
+      type: "object",
+      properties: { month: { type: "string", description: "Mois au format AAAA-MM. Défaut: mois courant." } },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: "function",
     name: "get_vacant_units",
     description: "Liste les logements vacants, avec filtre optionnel par immeuble.",
     parameters: {
@@ -247,6 +258,8 @@ export function createCopilotToolRunner(source: CopilotDataSource, pageContext: 
         return getLeaseSummary(await loadStore(portfolioDomains), getString(args.leaseId));
       case "get_overdue_rent":
         return getOverdueRent(await loadStore(rentDomains));
+      case "get_rent_ledger_summary":
+        return getRentLedgerSummaryResult(await loadStore(rentDomains), optionalString(args.month));
       case "get_vacant_units":
         return getVacantUnits(await loadStore(["properties", "units", "tenants", "leases"]), optionalString(args.propertyId));
       case "get_upcoming_lease_expirations":
@@ -850,6 +863,25 @@ function findActiveLeaseForTenant(store: LocalStore, tenantId: string) {
   return store.leases.find((lease) => lease.tenantId === tenantId && isLeaseCurrent(lease)) ?? null;
 }
 
+function getRentLedgerSummaryResult(store: LocalStore, requestedMonth?: string | null) {
+  const month = requestedMonth && /^\d{4}-(0[1-9]|1[0-2])$/.test(requestedMonth) ? requestedMonth : todayIso().slice(0, 7);
+  const summary = getRentLedgerSummary(buildRentLedger(store, todayIso()), month, todayIso());
+
+  return {
+    month: summary.currentMonth,
+    due: formatMoney(summary.dueThisMonth),
+    dueAmount: summary.dueThisMonth,
+    received: formatMoney(summary.receivedThisMonth),
+    receivedAmount: summary.receivedThisMonth,
+    remaining: formatMoney(summary.remainingThisMonth),
+    remainingAmount: summary.remainingThisMonth,
+    overdue: formatMoney(summary.overdueBalance),
+    overdueAmount: summary.overdueBalance,
+    totalReceivable: formatMoney(summary.totalReceivable),
+    totalReceivableAmount: summary.totalReceivable,
+  };
+}
+
 function findLatestLeaseForTenant(store: LocalStore, tenantId: string) {
   return (
     store.leases
@@ -1102,6 +1134,7 @@ function mapPaymentTransaction(row: Record<string, unknown>): PaymentTransaction
     receivedAt: stringValue(row.received_at),
     reference: optionalMapString(row.reference),
     tenantId: nullableString(row.tenant_id),
+    cancelledAt: nullableString(row.cancelled_at),
     updatedAt: optionalMapString(row.updated_at),
   };
 }

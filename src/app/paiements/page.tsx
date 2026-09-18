@@ -888,18 +888,22 @@ function ChargeDetailsModal({
                   {getPaymentMethodLabel(entry.method)}
                   {entry.reference ? ` · Réf. ${entry.reference}` : ""}
                 </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setEditingTransactionId(entry.transactionId)} type="button">
-                    Corriger
-                  </button>
-                  <button
-                    className="rounded-md border border-[color:var(--red)]/35 px-3 py-1.5 text-xs font-semibold text-[color:var(--red)] hover:bg-[color:var(--red)]/10"
-                    onClick={() => setCancellingTransactionId(entry.transactionId)}
-                    type="button"
-                  >
-                    Annuler la transaction
-                  </button>
-                </div>
+                {entry.cancelledAt ? (
+                  <p className="mt-3 text-xs font-semibold text-[color:var(--red)]">Annulée le {formatIsoDateTime(entry.cancelledAt)}</p>
+                ) : (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setEditingTransactionId(entry.transactionId)} type="button">
+                      Corriger
+                    </button>
+                    <button
+                      className="rounded-md border border-[color:var(--red)]/35 px-3 py-1.5 text-xs font-semibold text-[color:var(--red)] hover:bg-[color:var(--red)]/10"
+                      onClick={() => setCancellingTransactionId(entry.transactionId)}
+                      type="button"
+                    >
+                      Annuler la transaction
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
             {history.length === 0 ? (
@@ -1245,10 +1249,11 @@ function getChargeTransactionHistory(row: RentChargeRow, allocations: PaymentAll
             method: transaction.method,
             receivedAt: transaction.receivedAt,
             reference: transaction.reference ?? "",
+            cancelledAt: transaction.cancelledAt ?? null,
           }
         : null;
     })
-    .filter((entry): entry is { id: string; transactionId: string; amountAllocated: number; method: PaymentMethod; receivedAt: string; reference: string } => Boolean(entry))
+    .filter((entry): entry is { id: string; transactionId: string; amountAllocated: number; method: PaymentMethod; receivedAt: string; reference: string; cancelledAt: string | null } => Boolean(entry))
     .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
 }
 
@@ -1274,6 +1279,11 @@ function formatShortDate(date: string) {
   }
 
   return `${Number(day)} ${monthNames[Number(month) - 1].toLowerCase()}`;
+}
+
+function formatIsoDateTime(value: string) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat("fr-CA", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function addMonthsToMonth(month: string, delta: number) {

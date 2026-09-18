@@ -204,6 +204,7 @@ function buildSystemPrompt() {
     "Ne demande pas à l'utilisateur de vérifier une page si un outil peut répondre.",
     "Si une personne, un immeuble, un logement ou un bail est ambigu, demande une précision et liste brièvement les candidats.",
     "Pour les paiements et statuts de loyer, utilise uniquement le registre des loyers, les transactions et les allocations. Ignore les statuts legacy du bail ou du logement comme source de vérité.",
+    "Pour tout total dû, reçu, restant ou en retard d'un mois, utilise get_rent_ledger_summary. L'activité récente n'est jamais une source de vérité financière.",
     "Distingue clairement les faits calculés, les hypothèses et les recommandations.",
     "Si une donnée manque, dis-le simplement au lieu d'inventer.",
     "",

@@ -118,7 +118,7 @@ export async function getTenantPortalSnapshot(): Promise<TenantPortalSnapshot> {
     selectRows("tenants", "id,user_id,full_name,email,phone,notes,archived_at,created_at,updated_at", (query) => query.in("id", tenantIds)).then((rows) => rows.map(mapTenant)),
     selectRows("leases", "id,property_id,unit_id,tenant_id,start_date,end_date,actual_end_date,monthly_rent,payment_status,status,notes,termination_reason,termination_notes,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapLease)),
     selectRows("rent_charges", "id,property_id,unit_id,lease_id,tenant_id,period_month,due_date,amount_due,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapRentCharge)),
-    selectRows("payment_transactions", "id,property_id,lease_id,tenant_id,received_at,amount_received,method,reference,notes,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapPaymentTransaction)),
+    selectRows("payment_transactions", "id,property_id,lease_id,tenant_id,cancelled_at,received_at,amount_received,method,reference,notes,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapPaymentTransaction)),
     selectRows("documents", "id,user_id,property_id,unit_id,tenant_id,lease_id,title,document_type,file_name,file_url,storage_path,mime_type,size_bytes,related_entity_type,related_entity_id,notes,uploaded_at,created_at,updated_at,visibility").then((rows) => rows.map(mapDocument)),
     selectRows("maintenance_requests", "id,user_id,property_id,unit_id,tenant_id,title,description,priority,status,reported_at,completed_at,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapMaintenanceTicket)),
     selectRows("maintenance_request_attachments", "id,maintenance_request_id,tenant_id,file_name,storage_path,mime_type,size_bytes,created_at").then((rows) => rows.map(mapMaintenanceAttachment)),
@@ -630,6 +630,7 @@ function mapPaymentTransaction(row: Record<string, unknown>): PaymentTransaction
     receivedAt: stringValue(row.received_at),
     reference: optionalString(row.reference),
     tenantId: nullableString(row.tenant_id),
+    cancelledAt: nullableString(row.cancelled_at),
     updatedAt: optionalString(row.updated_at),
   };
 }

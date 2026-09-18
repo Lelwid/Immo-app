@@ -383,6 +383,7 @@ export type PaymentTransaction = {
   propertyId: string;
   leaseId?: string | null;
   tenantId: string | null;
+  cancelledAt?: string | null;
   receivedAt: string;
   amountReceived: number;
   method: PaymentMethod;
