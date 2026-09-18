@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
+import { isLeaseCurrent } from "@/lib/data/leaseAdapters";
 import { currency, getNotificationItems, getPropertyName, getRecentActivities, getUnitLabel } from "@/lib/mockData";
 import type { LocalStore, NotificationItem, PaymentTransaction, Property, UnitActivity } from "@/lib/types";
 
@@ -632,7 +633,7 @@ function buildPropertySummaries(store: LocalStore, rows: RentChargeRow[], transa
 
   return properties.slice(0, 4).map((property) => {
     const units = store.units.filter((unit) => unit.propertyId === property.id);
-    const activeUnitIds = new Set(store.leases.filter((lease) => lease.propertyId === property.id && lease.status === "active").map((lease) => lease.unitId));
+    const activeUnitIds = new Set(store.leases.filter((lease) => lease.propertyId === property.id && isLeaseCurrent(lease)).map((lease) => lease.unitId));
     return {
       href: `/immeubles/${property.id}`,
       id: property.id,
@@ -645,7 +646,7 @@ function buildPropertySummaries(store: LocalStore, rows: RentChargeRow[], transa
 }
 
 function getOccupancyMetrics(store: LocalStore, rows: RentChargeRow[], today: string) {
-  const activeLeaseUnitIds = new Set(store.leases.filter((lease) => lease.status === "active").map((lease) => lease.unitId));
+  const activeLeaseUnitIds = new Set(store.leases.filter((lease) => isLeaseCurrent(lease, today)).map((lease) => lease.unitId));
   const attentionUnitIds = new Set(rows.filter((row) => row.balance > 0 && row.dueDate < today).map((row) => row.unitId));
   for (const ticket of store.maintenanceTickets.filter((ticket) => ticket.status !== "resolved" && (ticket.priority === "urgent" || ticket.priority === "high"))) {
     attentionUnitIds.add(ticket.unitId);

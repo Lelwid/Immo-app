@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildRentLedger, getRentLedgerSummary, type RentChargeRow } from "@/lib/data/rentLedgerService";
+import { isLeaseCurrent } from "@/lib/data/leaseAdapters";
 import type {
   ActivityType,
   AppNote,
@@ -139,7 +140,7 @@ export const copilotToolDefinitions: ToolDefinition[] = [
   {
     type: "function",
     name: "get_tenant_summary",
-    description: "Retourne le bail actif, le logement, le solde locatif, les documents et les demandes d'entretien d'un locataire.",
+    description: "Retourne le bail actuel, l'historique des baux, le logement, le solde locatif, les documents et les demandes d'entretien d'un locataire.",
     parameters: {
       type: "object",
       properties: { tenantId: { type: "string", description: "Identifiant du locataire." } },
@@ -418,8 +419,9 @@ function getCurrentContext(store: LocalStore, context: CopilotEntityContext | nu
 function getPortfolioSummaryResult(store: LocalStore) {
   const ledger = buildRentLedger(store, todayIso());
   const summary = getRentLedgerSummary(ledger, todayIso().slice(0, 7), todayIso());
-  const activeLeases = store.leases.filter((lease) => lease.status === "active");
+  const activeLeases = store.leases.filter((lease) => isLeaseCurrent(lease));
   const occupiedUnitIds = new Set(activeLeases.map((lease) => lease.unitId));
+  const activeTenantIds = new Set(activeLeases.map((lease) => lease.tenantId));
   const openMaintenance = store.maintenanceTickets.filter((ticket) => ticket.status !== "resolved");
   const overdueTasks = store.tasks.filter((task) => !task.completed && task.dueDate && task.dueDate < todayIso());
 
@@ -430,6 +432,7 @@ function getPortfolioSummaryResult(store: LocalStore) {
       maintenanceOpen: openMaintenance.length,
       properties: store.properties.length,
       tasksOverdue: overdueTasks.length,
+      activeTenants: activeTenantIds.size,
       tenants: store.tenants.length,
       units: store.units.length,
       vacantUnits: store.units.filter((unit) => !occupiedUnitIds.has(unit.id)).length,
@@ -494,15 +497,22 @@ function getTenantSummary(store: LocalStore, tenantId: string) {
   }
 
   const activeLease = findActiveLeaseForTenant(store, tenant.id);
-  const unit = activeLease ? findUnit(store, activeLease.unitId) : null;
-  const property = activeLease ? findPropertyById(store, activeLease.propertyId) : null;
+  const latestLease = findLatestLeaseForTenant(store, tenant.id);
+  const relevantLease = activeLease ?? latestLease;
+  const unit = relevantLease ? findUnit(store, relevantLease.unitId) : null;
+  const property = relevantLease ? findPropertyById(store, relevantLease.propertyId) : null;
   const rentStatus = getTenantRentStatus(store, tenant.id);
-  const documents = store.documents.filter((document) => document.tenantId === tenant.id || Boolean(activeLease && document.leaseId === activeLease.id)).map(summarizeDocument);
+  const tenantLeases = store.leases
+    .filter((lease) => lease.tenantId === tenant.id)
+    .sort((a, b) => b.startDate.localeCompare(a.startDate));
+  const documents = store.documents.filter((document) => document.tenantId === tenant.id || tenantLeases.some((lease) => document.leaseId === lease.id)).map(summarizeDocument);
   const maintenance = store.maintenanceTickets.filter((ticket) => ticket.unitId && ticket.unitId === activeLease?.unitId && ticket.status !== "resolved").map(summarizeMaintenance);
 
   return {
     activeLease: activeLease ? summarizeLease(activeLease, store) : null,
     documents,
+    latestLease: latestLease ? summarizeLease(latestLease, store) : null,
+    leaseHistory: tenantLeases.map((lease) => summarizeLease(lease, store)),
     maintenance,
     property: property ? summarizeProperty(property) : null,
     rentStatus,
@@ -524,7 +534,7 @@ function getPropertySummary(store: LocalStore, propertyId: string) {
   }
 
   const units = store.units.filter((unit) => unit.propertyId === property.id);
-  const activeLeases = store.leases.filter((lease) => lease.propertyId === property.id && lease.status === "active");
+  const activeLeases = store.leases.filter((lease) => lease.propertyId === property.id && isLeaseCurrent(lease));
   const occupiedUnitIds = new Set(activeLeases.map((lease) => lease.unitId));
   const ledger = buildRentLedger(store, todayIso());
   const propertyRows = ledger.rows.filter((row) => row.propertyId === property.id);
@@ -555,13 +565,17 @@ function getUnitSummary(store: LocalStore, unitId: string) {
   }
 
   const property = findPropertyById(store, unit.propertyId);
-  const activeLease = store.leases.find((lease) => lease.unitId === unit.id && lease.status === "active") ?? null;
+  const activeLease = store.leases.find((lease) => lease.unitId === unit.id && isLeaseCurrent(lease)) ?? null;
+  const upcomingLease = store.leases
+    .filter((lease) => lease.unitId === unit.id && lease.status === "active" && lease.startDate > todayIso())
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
   const tenant = activeLease ? store.tenants.find((candidate) => candidate.id === activeLease.tenantId) ?? null : null;
   const ledger = buildRentLedger(store, todayIso());
   const rows = ledger.rows.filter((row) => row.unitId === unit.id);
 
   return {
     activeLease: activeLease ? summarizeLease(activeLease, store) : null,
+    upcomingLease: upcomingLease ? summarizeLease(upcomingLease, store) : null,
     documents: store.documents.filter((document) => document.unitId === unit.id || Boolean(activeLease && document.leaseId === activeLease.id)).map(summarizeDocument),
     maintenanceOpen: store.maintenanceTickets.filter((ticket) => ticket.unitId === unit.id && ticket.status !== "resolved").map(summarizeMaintenance),
     property: property ? summarizeProperty(property) : null,
@@ -605,7 +619,7 @@ function getOverdueRent(store: LocalStore) {
 }
 
 function getVacantUnits(store: LocalStore, propertyId: string | null) {
-  const activeUnitIds = new Set(store.leases.filter((lease) => lease.status === "active").map((lease) => lease.unitId));
+  const activeUnitIds = new Set(store.leases.filter((lease) => isLeaseCurrent(lease)).map((lease) => lease.unitId));
   const units = store.units
     .filter((unit) => !propertyId || unit.propertyId === propertyId)
     .filter((unit) => !activeUnitIds.has(unit.id))
@@ -624,7 +638,7 @@ function getUpcomingLeaseExpirations(store: LocalStore, days: number) {
   const today = todayIso();
   const maxDate = addDaysIso(today, Math.max(1, Math.min(days, 365)));
   const leases = store.leases
-    .filter((lease) => lease.status === "active" && lease.endDate >= today && lease.endDate <= maxDate)
+    .filter((lease) => isLeaseCurrent(lease, today) && lease.endDate >= today && lease.endDate <= maxDate)
     .sort((a, b) => a.endDate.localeCompare(b.endDate))
     .map((lease) => summarizeLease(lease, store));
 
@@ -833,7 +847,15 @@ function hasRealDocumentFile(document: PropertyDocument) {
 }
 
 function findActiveLeaseForTenant(store: LocalStore, tenantId: string) {
-  return store.leases.find((lease) => lease.tenantId === tenantId && lease.status === "active") ?? null;
+  return store.leases.find((lease) => lease.tenantId === tenantId && isLeaseCurrent(lease)) ?? null;
+}
+
+function findLatestLeaseForTenant(store: LocalStore, tenantId: string) {
+  return (
+    store.leases
+      .filter((lease) => lease.tenantId === tenantId)
+      .sort((a, b) => b.startDate.localeCompare(a.startDate))[0] ?? null
+  );
 }
 
 function findUnit(store: LocalStore, unitId: string) {

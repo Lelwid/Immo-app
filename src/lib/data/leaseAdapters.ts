@@ -1,6 +1,6 @@
 import type { Lease, PaymentStatus, Tenant, Unit, UnitOccupancy } from "@/lib/types";
 
-export type UnitOccupationSource = "lease" | "legacy" | "vacant";
+export type UnitOccupationSource = "lease" | "future" | "legacy" | "vacant";
 
 export type UnitOccupationView = {
   unitId: string;
@@ -26,6 +26,24 @@ export function getActiveLeaseForUnit(unitId: string, leases: Lease[]) {
   );
 }
 
+export function isLeaseCurrent(lease: Lease, today = new Date().toISOString().slice(0, 10)) {
+  if (lease.status !== "active" || lease.startDate > today) {
+    return false;
+  }
+
+  const effectiveEndDate = lease.actualEndDate || lease.endDate;
+  return !effectiveEndDate || effectiveEndDate >= today;
+}
+
+export function getCurrentLeaseForUnit(unitId: string, leases: Lease[], today?: string) {
+  return (
+    leases
+      .filter((lease) => lease.unitId === unitId && isLeaseCurrent(lease, today))
+      .sort((a, b) => (b.updatedAt ?? b.createdAt ?? b.startDate).localeCompare(a.updatedAt ?? a.createdAt ?? a.startDate))[0] ??
+    null
+  );
+}
+
 export function getTenantForLease(lease: Lease | null, tenants: Tenant[]) {
   if (!lease) {
     return null;
@@ -35,7 +53,7 @@ export function getTenantForLease(lease: Lease | null, tenants: Tenant[]) {
 }
 
 export function getUnitOccupancy(unit: Unit, leases: Lease[], tenants: Tenant[]): UnitOccupationView {
-  const activeLease = getActiveLeaseForUnit(unit.id, leases);
+  const activeLease = getCurrentLeaseForUnit(unit.id, leases);
 
   if (activeLease) {
     const tenant = getTenantForLease(activeLease, tenants);
@@ -53,6 +71,27 @@ export function getUnitOccupancy(unit: Unit, leases: Lease[], tenants: Tenant[])
       paymentStatus: fromRentPaymentStatus(activeLease.paymentStatus),
       leaseStatus: activeLease.status,
       source: "lease",
+    };
+  }
+
+  const futureLease = getActiveLeaseForUnit(unit.id, leases);
+
+  if (futureLease && futureLease.startDate > new Date().toISOString().slice(0, 10)) {
+    const tenant = getTenantForLease(futureLease, tenants);
+
+    return {
+      unitId: unit.id,
+      propertyId: unit.propertyId,
+      unitName: unit.label,
+      isOccupied: false,
+      tenantId: futureLease.tenantId,
+      tenantName: tenant ? getTenantName(tenant) : "Locataire introuvable",
+      monthlyRent: futureLease.monthlyRent,
+      leaseStartDate: futureLease.startDate,
+      leaseEndDate: futureLease.endDate,
+      paymentStatus: fromRentPaymentStatus(futureLease.paymentStatus),
+      leaseStatus: futureLease.status,
+      source: "future",
     };
   }
 
@@ -116,7 +155,7 @@ export function getUnitsWithOccupancy(units: Unit[], leases: Lease[], tenants: T
 }
 
 export function buildUnitOccupancy(unit: Unit, leases: Lease[], tenants: Tenant[]): UnitOccupancy {
-  const activeLease = getActiveLeaseForUnit(unit.id, leases);
+  const activeLease = getCurrentLeaseForUnit(unit.id, leases);
 
   return {
     unit,

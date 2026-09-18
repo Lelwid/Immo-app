@@ -1234,7 +1234,7 @@ function getTenantRows(store: LocalStore): TenantRow[] {
 
 function getTenantSummary(store: LocalStore) {
   const occupancies = store.units.map((unit) => getUnitOccupancy(unit, store.leases, store.tenants));
-  const activeTenantIds = new Set(occupancies.filter((occupancy) => occupancy.tenantId).map((occupancy) => occupancy.tenantId as string));
+  const activeTenantIds = new Set(occupancies.filter((occupancy) => occupancy.isOccupied && occupancy.tenantId).map((occupancy) => occupancy.tenantId as string));
   const ledgerRows = buildRentLedger(store).rows;
   const lateTenantIds = new Set(
     [...activeTenantIds].filter((tenantId) => getTenantRentStatus(tenantId, store, ledgerRows).status === "late"),

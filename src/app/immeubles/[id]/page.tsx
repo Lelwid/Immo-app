@@ -466,6 +466,7 @@ function PropertyUnitCard({
   unit: UnitDashboard;
 }) {
   const occupied = occupancy.isOccupied;
+  const hasFutureLease = occupancy.source === "future";
 
   return (
     <article className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-left transition hover:border-[color:var(--accent)]/60 hover:bg-[var(--surface-2)]">
@@ -473,22 +474,22 @@ function PropertyUnitCard({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <p className="font-semibold text-[var(--foreground)]">{unit.label}</p>
-            <Badge label={occupied ? "Occupé" : "Vacant"} />
+            <Badge label={occupied ? "Occupé" : hasFutureLease ? "Bail à venir" : "Vacant"} />
           </div>
           <p className="mt-1 text-sm text-[var(--muted)]">{unit.floor}</p>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            {occupied ? `${occupancy.tenantName} · ` : ""}
+            {occupied || hasFutureLease ? `${occupancy.tenantName} · ` : ""}
             {currency.format(occupancy.monthlyRent)} / mois
-            {occupied ? ` · ${paymentStatusLabel[occupancy.paymentStatus]}` : ""}
+            {occupied ? ` · ${paymentStatusLabel[occupancy.paymentStatus]}` : hasFutureLease ? ` · Début ${occupancy.leaseStartDate}` : ""}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button className="btn-secondary" onClick={() => onOpenUnit(unit)} type="button">
             Voir le logement
           </button>
-          {occupied ? (
+          {occupied || hasFutureLease ? (
             <button className="btn-danger" onClick={() => onRemoveTenant(unit)} type="button">
-              Retirer le locataire
+              {hasFutureLease ? "Annuler le bail" : "Retirer le locataire"}
             </button>
           ) : (
             <button className="btn-primary" onClick={() => onAddTenant(unit)} type="button">
@@ -605,7 +606,7 @@ function UnitDrawer({
 
       {activeTab === "resume" ? (
         <div className="mt-6 grid gap-3">
-          {!occupancy.isOccupied ? (
+          {!occupancy.isOccupied && occupancy.source !== "future" ? (
             <div className="rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] p-5">
               <p className="text-lg font-semibold text-[var(--foreground)]">Ce logement est vacant</p>
               <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
@@ -614,6 +615,13 @@ function UnitDrawer({
               <button className="btn-primary mt-4" onClick={() => onOpenTenantAssignment(unit)} type="button">
                 Ajouter un locataire
               </button>
+            </div>
+          ) : occupancy.source === "future" ? (
+            <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5">
+              <p className="text-lg font-semibold text-[var(--foreground)]">Bail à venir</p>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
+                {occupancy.tenantName} occupera ce logement à partir du {occupancy.leaseStartDate}.
+              </p>
             </div>
           ) : (
             <InfoCard label="Locataire" value={occupancy.tenantName} />

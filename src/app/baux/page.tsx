@@ -48,11 +48,11 @@ export default function BauxPage() {
 
     setEditingUnitId(unit.id);
     setLeaseForm({
-      tenantId: occupancy.tenantId,
-      monthlyRent: occupancy.monthlyRent,
-      leaseStartDate: occupancy.leaseStartDate,
-      leaseEndDate: occupancy.leaseEndDate,
-      paymentStatus: occupancy.paymentStatus,
+      tenantId: activeLease?.tenantId ?? null,
+      monthlyRent: activeLease?.monthlyRent ?? unit.monthlyRent,
+      leaseStartDate: activeLease?.startDate ?? "",
+      leaseEndDate: activeLease?.endDate ?? "",
+      paymentStatus: activeLease ? occupancy.paymentStatus : unit.paymentStatus,
       notes: activeLease?.notes ?? unit.notes,
     });
     setShowLeaseModal(true);
@@ -182,19 +182,21 @@ export default function BauxPage() {
                   {property.units.map((unit) => {
                     const occupancy = getUnitOccupancy(unit, snapshotStore.leases, snapshotStore.tenants);
                     const activeLease = getActiveLeaseForUnit(unit.id, snapshotStore.leases);
+                    const isFutureLease = occupancy.source === "future";
+                    const hasLeaseDetails = occupancy.source === "lease" || isFutureLease;
 
                     return (
                       <div
                         key={unit.id}
                         className="grid grid-cols-[1.2fr_0.8fr_1fr_1fr_0.8fr_1fr_1fr_0.8fr] gap-3 border-t border-[var(--border)] px-4 py-3 text-sm text-[var(--foreground)]"
                       >
-                        <span>{occupancy.tenantName}</span>
+                        <span>{isFutureLease ? `${occupancy.tenantName} · À venir` : occupancy.tenantName}</span>
                         <span className="text-[var(--muted)]">{occupancy.unitName}</span>
-                        <span>{occupancy.leaseStartDate}</span>
-                        <span>{occupancy.leaseEndDate}</span>
-                        <span>{currency.format(occupancy.monthlyRent)}</span>
-                        <span>{paymentStatusLabel[occupancy.paymentStatus]}</span>
-                        <span>{renewalStatusLabel[occupancy.paymentStatus]}</span>
+                        <span>{hasLeaseDetails ? occupancy.leaseStartDate : "—"}</span>
+                        <span>{hasLeaseDetails ? occupancy.leaseEndDate : "—"}</span>
+                        <span>{hasLeaseDetails ? currency.format(occupancy.monthlyRent) : "—"}</span>
+                        <span>{isFutureLease ? "À venir" : hasLeaseDetails ? paymentStatusLabel[occupancy.paymentStatus] : "—"}</span>
+                        <span>{isFutureLease ? "À venir" : hasLeaseDetails ? renewalStatusLabel[occupancy.paymentStatus] : "—"}</span>
                         <div className="flex flex-col items-start gap-2">
                           <button className="text-left text-sm font-semibold text-[color:var(--accent)]" onClick={() => editLease(unit)} type="button">
                             Modifier

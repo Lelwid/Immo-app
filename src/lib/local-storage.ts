@@ -678,7 +678,7 @@ function buildUnitDashboard(
 ): UnitDashboard {
   const occupancy = getUnitOccupancy(unit, leases, tenants);
   const displayUnit = applyOccupationToLegacyUnit(unit, occupancy);
-  const tenant = occupancy.tenantId ? tenants.find((candidate) => candidate.id === occupancy.tenantId && !candidate.archivedAt) ?? null : null;
+  const tenant = occupancy.isOccupied && occupancy.tenantId ? tenants.find((candidate) => candidate.id === occupancy.tenantId && !candidate.archivedAt) ?? null : null;
   const openTickets = tickets.filter(
     (ticket) => ticket.unitId === unit.id && ticket.status !== "resolved",
   );
