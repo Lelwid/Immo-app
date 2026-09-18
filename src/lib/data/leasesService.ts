@@ -1,5 +1,6 @@
 import { getDataMode, shouldUseSupabase } from "@/lib/data/dataMode";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
+import { validateLeaseDateRange } from "@/lib/data/leaseValidation";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { Lease, RentPaymentStatus } from "@/lib/types";
 
@@ -488,6 +489,8 @@ function toSupabaseInsert(input: LeaseInput) {
 }
 
 function normalizeLeaseInput(input: LeaseInput): Required<LeaseInput> {
+  validateLeaseDateRange(input.startDate, input.endDate);
+
   return {
     propertyId: input.propertyId,
     unitId: input.unitId,

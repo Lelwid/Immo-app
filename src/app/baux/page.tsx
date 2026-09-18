@@ -131,7 +131,7 @@ export default function BauxPage() {
       setShowLeaseModal(false);
     } catch (error) {
       console.error("Impossible d'enregistrer le bail.", error);
-      setLeaseSaveError("Impossible d’enregistrer le bail. Réessayez.");
+      setLeaseSaveError(error instanceof Error ? error.message : "Impossible d’enregistrer le bail. Réessayez.");
     } finally {
       leaseSaveInFlightRef.current = false;
       setLeaseSaving(false);

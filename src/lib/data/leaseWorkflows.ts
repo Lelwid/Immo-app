@@ -1,5 +1,6 @@
 import { applyActivitySideEffect } from "@/lib/data/activitySideEffectsService";
 import { getActiveLeaseForUnit, getUnitOccupancy } from "@/lib/data/leaseAdapters";
+import { validateLeaseDateRange } from "@/lib/data/leaseValidation";
 import { applyTenantNoteSideEffect } from "@/lib/data/notesSideEffectsService";
 import { applyInitialPaymentSideEffect, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import type { Lease, LocalStore, PaymentStatus, RentPaymentStatus, Tenant } from "@/lib/types";
@@ -319,6 +320,8 @@ function createLeaseRecord({
   tenantId: string;
   unitId: string;
 }): Lease {
+  validateLeaseDateRange(leaseStartDate, leaseEndDate);
+
   const now = new Date().toISOString();
 
   return {

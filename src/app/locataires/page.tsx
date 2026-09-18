@@ -148,7 +148,7 @@ function LocatairesContent() {
       setShowCreateTenantModal(false);
     } catch (error) {
       console.error("Impossible d'ajouter le locataire.", error);
-      setNewTenantError("Impossible d’ajouter le locataire et son bail. Réessayez.");
+      setNewTenantError(error instanceof Error ? error.message : "Impossible d’ajouter le locataire et son bail. Réessayez.");
     } finally {
       newTenantSaveInFlightRef.current = false;
       setNewTenantSaving(false);
