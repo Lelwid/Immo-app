@@ -692,6 +692,10 @@ function getTenantRentStatus(store: LocalStore, tenantId: string) {
   const ledger = buildRentLedger(store, todayIso());
   const rows = ledger.rows.filter((row) => row.tenantId === tenantId && row.leaseId === activeLease.id);
   const currentMonth = todayIso().slice(0, 7);
+  const outstandingRows = rows
+    .filter((row) => row.balance > 0 && row.dueDate <= todayIso())
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const overdueRows = outstandingRows.filter((row) => row.dueDate < todayIso());
   const overdue = rows.filter((row) => row.balance > 0 && row.dueDate < todayIso()).sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
   const partialCurrent = rows.find((row) => row.periodMonth === currentMonth && row.status === "partiel");
   const current = rows.find((row) => row.periodMonth === currentMonth);
@@ -720,10 +724,15 @@ function getTenantRentStatus(store: LocalStore, tenantId: string) {
     formattedDueDate: formatDate(selected.dueDate),
     lastPaymentAt: selected.lastPaymentAt || null,
     formattedLastPaymentAt: selected.lastPaymentAt ? formatDate(selected.lastPaymentAt) : null,
+    formattedTotalBalance: formatMoney(outstandingRows.reduce((sum, row) => sum + row.balance, 0)),
     label,
     leaseId: activeLease.id,
+    outstandingCharges: summarizeChargeRows(outstandingRows, store),
+    outstandingCount: outstandingRows.length,
+    overdueCount: overdueRows.length,
     periodMonth: selected.periodMonth,
     reason: getStatusReason(label, selected),
+    totalBalance: outstandingRows.reduce((sum, row) => sum + row.balance, 0),
   };
 }
 
