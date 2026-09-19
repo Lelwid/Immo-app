@@ -328,13 +328,14 @@ function getRelatedEntityOptions(store: LocalStore, relatedEntityType: DocumentR
 
   if (relatedEntityType === "bail") {
     return store.leases
-      .filter((lease) => lease.status === "active" && propertyIds.has(lease.propertyId))
+      .filter((lease) => propertyIds.has(lease.propertyId))
       .map((lease) => {
         const tenant = store.tenants.find((candidate) => candidate.id === lease.tenantId);
+        const statusLabel = lease.status === "ended" ? " · Terminé" : lease.status === "archived" ? " · Archivé" : "";
 
         return {
           value: lease.id,
-          label: `${getTenantDisplayName(tenant)} · ${getUnitLabel(lease.unitId, store)} · ${lease.startDate} au ${lease.endDate}`,
+          label: `${getTenantDisplayName(tenant)} · ${getUnitLabel(lease.unitId, store)} · ${lease.startDate} au ${lease.endDate}${statusLabel}`,
           propertyId: lease.propertyId,
           unitId: lease.unitId,
           tenantId: lease.tenantId,
