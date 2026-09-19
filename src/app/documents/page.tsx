@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { RouteShell } from "@/app/components/route-shell";
 import { AppIcon } from "@/components/AppIcon";
@@ -122,6 +122,7 @@ export default function DocumentsPage() {
   const [returnToDocumentAfterAnalysis, setReturnToDocumentAfterAnalysis] = useState(false);
   const [confirmDuplicateTenant, setConfirmDuplicateTenant] = useState(false);
   const [confirmingExtraction, setConfirmingExtraction] = useState(false);
+  const confirmingExtractionRef = useRef(false);
   const [additionalLeasePageFiles, setAdditionalLeasePageFiles] = useState<File[]>([]);
   const documentModalOpen = showDocumentModal || Boolean(documentUploadContext);
   const documents = useMemo(
@@ -388,10 +389,11 @@ export default function DocumentsPage() {
   }
 
   async function confirmLeaseExtraction(document: PropertyDocument) {
-    if (!leaseExtractionForm) {
+    if (!leaseExtractionForm || confirmingExtractionRef.current) {
       return;
     }
 
+    confirmingExtractionRef.current = true;
     setConfirmingExtraction(true);
     setAnalysisError(null);
 
@@ -466,6 +468,7 @@ export default function DocumentsPage() {
     } catch (error) {
       setAnalysisError(error instanceof Error ? error.message : "Impossible de créer le bail à partir de l'analyse.");
     } finally {
+      confirmingExtractionRef.current = false;
       setConfirmingExtraction(false);
     }
   }
