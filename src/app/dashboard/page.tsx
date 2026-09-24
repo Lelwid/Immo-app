@@ -561,7 +561,9 @@ function buildDashboardModel(store: LocalStore, today: string, selectedMonth: st
   const scopedStore = getScopedStore(store, selectedPropertyId);
   const ledger = buildRentLedger(store, today);
   const scopedRows = ledger.rows.filter((row) => isInScope(row.propertyId, selectedPropertyId));
-  const scopedTransactions = ledger.transactions.filter((transaction) => isInScope(transaction.propertyId, selectedPropertyId));
+  const scopedTransactions = ledger.transactions.filter(
+    (transaction) => !transaction.cancelledAt && isInScope(transaction.propertyId, selectedPropertyId),
+  );
   const currentRows = scopedRows.filter((row) => row.dueDate.slice(0, 7) === selectedMonth);
   const previousMonth = addMonthsToMonth(selectedMonth, -1);
   const receivedThisMonth = sumTransactionsByMonth(scopedTransactions, selectedMonth);
