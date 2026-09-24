@@ -60,6 +60,7 @@ export type Property = {
   addressProvider?: string | null;
   addressProviderId?: string | null;
   propertyType: "triplex" | "duplex" | "condo" | "quadruplex" | "immeuble";
+  archivedAt?: string | null;
 };
 
 export type PhysicalUnit = {
@@ -224,6 +225,7 @@ export type LeaseExtraction = {
 export type DocumentAiExtractionStatus = "pending" | "processing" | "completed" | "failed";
 export type DocumentAiExtractionMethod = "native" | "ocr" | "vision";
 export type DocumentAnalysisErrorCode =
+  | "AI_QUOTA_EXCEEDED"
   | "PDF_READ_ERROR"
   | "PDF_INVALID"
   | "IMAGE_INVALID"

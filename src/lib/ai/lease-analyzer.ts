@@ -1,6 +1,7 @@
 import "server-only";
 
 import { HabixaAnalysisError } from "@/lib/server/habixaAiErrors";
+import { OpenAiHttpError, requestOpenAiJson } from "@/lib/server/openAiHttp";
 import type { AiField, LeaseExtraction, LeaseStructuredExtraction } from "@/lib/types";
 
 type LeaseAnalyzerInput = {
@@ -61,8 +62,10 @@ async function analyzeWithOpenAi(input: LeaseAnalyzerInput, model: string, apiKe
     });
   }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
+  let payload: unknown;
+
+  try {
+    payload = await requestOpenAiJson({
       input: [
         {
           content,
@@ -79,24 +82,26 @@ async function analyzeWithOpenAi(input: LeaseAnalyzerInput, model: string, apiKe
         },
       },
       temperature: 0,
-    }),
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
+    }, apiKey, { timeoutMs: 30_000 });
+  } catch (error) {
+    if (error instanceof OpenAiHttpError && error.kind === "invalid_response") {
+      throw new HabixaAnalysisError("AI_SCHEMA_ERROR", "Nexbail AI n'a pas retourné de résultat exploitable.", { step: "openai_response" });
+    }
 
-  if (!response.ok) {
-    const cause = await getOpenAiErrorCause(response);
+    if (error instanceof OpenAiHttpError && error.kind === "timeout") {
+      throw new HabixaAnalysisError("AI_ANALYSIS_ERROR", "L’analyse a dépassé le délai permis.", { step: "openai_timeout" });
+    }
 
-    throw new HabixaAnalysisError(getOpenAiErrorCode(response.status, cause), "Nexbail AI n'a pas pu analyser ce document.", {
-      cause,
-      step: "openai_request",
-    });
+    if (error instanceof OpenAiHttpError) {
+      throw new HabixaAnalysisError(getOpenAiErrorCode(error.status ?? 500, error.responseBody), "Nexbail AI n'a pas pu analyser ce document.", {
+        cause: error.responseBody,
+        step: "openai_request",
+      });
+    }
+
+    throw error;
   }
 
-  const payload = await response.json();
   const outputText = getOpenAiOutputText(payload);
 
   if (!outputText) {
@@ -440,23 +445,6 @@ function getOpenAiOutputText(payload: unknown) {
   }
 
   return null;
-}
-
-async function getOpenAiErrorCause(response: Response) {
-  const payload = await response.json().catch(() => null);
-
-  if (isRecord(payload) && isRecord(payload.error)) {
-    return {
-      code: typeof payload.error.code === "string" ? payload.error.code : null,
-      message: typeof payload.error.message === "string" ? payload.error.message : null,
-      status: response.status,
-      type: typeof payload.error.type === "string" ? payload.error.type : null,
-    };
-  }
-
-  return {
-    status: response.status,
-  };
 }
 
 function getOpenAiErrorCode(status: number, cause: unknown) {

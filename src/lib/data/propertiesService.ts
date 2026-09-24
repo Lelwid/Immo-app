@@ -27,26 +27,30 @@ type SupabasePropertyRow = {
   type: string;
   created_at?: string;
   updated_at?: string;
+  archived_at?: string | null;
 };
 
-export type PropertyInput = Omit<Property, "id">;
+export type PropertyInput = Omit<Property, "id" | "archivedAt">;
+export type PropertyDeletionMode = "delete" | "archive";
 
 const propertySelect =
-  "id,user_id,name,address,address_line1,street_number,street,district,city,province,province_code,postal_code,country,country_code,latitude,longitude,address_provider,address_provider_id,type,created_at,updated_at";
+  "id,user_id,name,address,address_line1,street_number,street,district,city,province,province_code,postal_code,country,country_code,latitude,longitude,address_provider,address_provider_id,type,archived_at,created_at,updated_at";
 
 const loadError = "Impossible de charger les immeubles.";
 const createError = "Impossible de créer l'immeuble.";
 const updateError = "Impossible de modifier l'immeuble.";
 const deleteError = "Impossible de supprimer l'immeuble.";
 
-export async function getProperties(): Promise<Property[]> {
+export async function getProperties(options: { archived?: boolean } = {}): Promise<Property[]> {
   if (canUseSupabase()) {
     const userId = await getCurrentUserId(loadError);
-    const { data, error } = await supabase!
+    let query = supabase!
       .from(table)
       .select(propertySelect)
-      .eq("user_id", userId)
-      .order("name");
+      .eq("user_id", userId);
+
+    query = options.archived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
+    const { data, error } = await query.order("name");
 
     if (error || !data) {
       throw new Error(loadError);
@@ -55,7 +59,45 @@ export async function getProperties(): Promise<Property[]> {
     return data.map(fromSupabaseRow);
   }
 
-  return loadLocalStore().properties;
+  return loadLocalStore().properties.filter((property) => options.archived ? Boolean(property.archivedAt) : !property.archivedAt);
+}
+
+export async function getArchivedProperties(): Promise<Property[]> {
+  return getProperties({ archived: true });
+}
+
+export async function getPropertyDeletionMode(propertyId: string): Promise<PropertyDeletionMode> {
+  if (canUseSupabase()) {
+    await getCurrentUserId(loadError);
+    const { data, error } = await supabase!.rpc("get_property_deletion_mode", { check_property_id: propertyId });
+
+    if (error || (data !== "delete" && data !== "archive")) {
+      throw new Error("Impossible de vérifier l’historique de l’immeuble.");
+    }
+
+    return data;
+  }
+
+  const store = loadLocalStore();
+  const hasHistory =
+    store.leases.some((item) => item.propertyId === propertyId) ||
+    (store.rentCharges ?? []).some((item) => item.propertyId === propertyId) ||
+    (store.paymentTransactions ?? []).some((item) => item.propertyId === propertyId) ||
+    store.documents.some((item) => item.propertyId === propertyId) ||
+    store.maintenanceTickets.some((item) => item.propertyId === propertyId) ||
+    store.notes.some((item) => item.propertyId === propertyId) ||
+    store.tasks.some((item) => item.propertyId === propertyId) ||
+    store.activities.some((item) => item.propertyId === propertyId && !(item.type === "immeuble" && item.title === "Immeuble créé"));
+
+  return hasHistory ? "archive" : "delete";
+}
+
+export async function archiveProperty(propertyId: string): Promise<void> {
+  return setPropertyArchivedAt(propertyId, new Date().toISOString());
+}
+
+export async function restoreProperty(propertyId: string): Promise<void> {
+  return setPropertyArchivedAt(propertyId, null);
 }
 
 export async function createProperty(input: PropertyInput): Promise<Property> {
@@ -191,6 +233,7 @@ function fromSupabaseRow(row: SupabasePropertyRow): Property {
     addressProvider: row.address_provider || null,
     addressProviderId: row.address_provider_id || null,
     propertyType: normalizePropertyType(row.type),
+    archivedAt: row.archived_at ?? null,
   };
 }
 
@@ -214,6 +257,28 @@ function toPropertyInput(property: Property): PropertyInput {
     addressProviderId: property.addressProviderId,
     propertyType: property.propertyType,
   };
+}
+
+async function setPropertyArchivedAt(propertyId: string, archivedAt: string | null): Promise<void> {
+  if (canUseSupabase()) {
+    const userId = await getCurrentUserId(updateError);
+    const { error } = await supabase!
+      .from(table)
+      .update({ archived_at: archivedAt })
+      .eq("id", propertyId)
+      .eq("user_id", userId);
+
+    if (error) {
+      throw new Error(archivedAt ? "Impossible d’archiver l’immeuble." : "Impossible de restaurer l’immeuble.");
+    }
+    return;
+  }
+
+  const store = loadLocalStore();
+  saveLocalStore({
+    ...store,
+    properties: store.properties.map((property) => property.id === propertyId ? { ...property, archivedAt } : property),
+  });
 }
 
 function toSupabasePayload(input: PropertyInput) {

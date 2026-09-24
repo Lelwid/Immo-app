@@ -189,6 +189,12 @@ export const copilotToolDefinitions: ToolDefinition[] = [
   },
   {
     type: "function",
+    name: "get_archived_properties",
+    description: "Liste les immeubles archivés, exclus des indicateurs actifs.",
+    parameters: { type: "object", properties: {}, required: [], additionalProperties: false },
+  },
+  {
+    type: "function",
     name: "get_rent_ledger_summary",
     description: "Retourne les montants canoniques dus, reçus et restant à recevoir pour un mois, ainsi que les soldes en retard et à recevoir.",
     parameters: {
@@ -244,6 +250,8 @@ export function createCopilotToolRunner(source: CopilotDataSource, pageContext: 
         return getCurrentContext(await loadStore(portfolioDomains), pageContext);
       case "get_portfolio_summary":
         return getPortfolioSummaryResult(await loadStore(portfolioDomains));
+      case "get_archived_properties":
+        return loadArchivedProperties(source);
       case "find_tenant":
         return findTenant(await loadStore(["tenants", "leases", "units", "properties"]), getString(args.query));
       case "find_property":
@@ -295,7 +303,7 @@ async function loadSupabaseStore(supabase: SupabaseClient, userId: string, domai
   const domainSet = new Set(domains);
 
   await Promise.all([
-    domainSet.has("properties") ? selectRows(supabase.from("properties").select("*").eq("user_id", userId), "properties").then((rows) => (store.properties = rows.map(mapProperty))) : null,
+    domainSet.has("properties") ? selectRows(supabase.from("properties").select("*").eq("user_id", userId).is("archived_at", null), "properties").then((rows) => (store.properties = rows.map(mapProperty))) : null,
     domainSet.has("units") ? selectRows(supabase.from("units").select("*"), "units").then((rows) => (store.units = rows.map(mapUnit))) : null,
     domainSet.has("tenants") ? selectRows(supabase.from("tenants").select("*").eq("user_id", userId), "tenants").then((rows) => (store.tenants = rows.map(mapTenant))) : null,
     domainSet.has("leases") ? selectRows(supabase.from("leases").select("*").order("start_date", { ascending: false }), "leases").then((rows) => (store.leases = rows.map(mapLease))) : null,
@@ -340,7 +348,29 @@ function normalizeLocalStore(store: LocalStore, domains: Domain[]) {
     copyDomain(normalized, store, domain);
   }
 
+  if (domains.includes("properties")) {
+    filterStoreToActiveProperties(normalized);
+  }
+
   return normalized;
+}
+
+function filterStoreToActiveProperties(store: LocalStore) {
+  const propertyIds = new Set(store.properties.filter((property) => !property.archivedAt).map((property) => property.id));
+  store.properties = store.properties.filter((property) => propertyIds.has(property.id));
+  store.units = store.units.filter((item) => propertyIds.has(item.propertyId));
+  store.leases = store.leases.filter((item) => propertyIds.has(item.propertyId));
+  store.payments = store.payments.filter((item) => propertyIds.has(item.propertyId));
+  store.rentCharges = store.rentCharges.filter((item) => propertyIds.has(item.propertyId));
+  store.paymentTransactions = store.paymentTransactions.filter((item) => propertyIds.has(item.propertyId));
+  const transactionIds = new Set(store.paymentTransactions.map((item) => item.id));
+  const chargeIds = new Set(store.rentCharges.map((item) => item.id));
+  store.paymentAllocations = store.paymentAllocations.filter((item) => transactionIds.has(item.transactionId) && chargeIds.has(item.rentChargeId));
+  store.documents = store.documents.filter((item) => propertyIds.has(item.propertyId));
+  store.maintenanceTickets = store.maintenanceTickets.filter((item) => propertyIds.has(item.propertyId));
+  store.notes = store.notes.filter((item) => !item.propertyId || propertyIds.has(item.propertyId));
+  store.activities = store.activities.filter((item) => !item.propertyId || propertyIds.has(item.propertyId));
+  store.tasks = store.tasks.filter((item) => !item.propertyId || propertyIds.has(item.propertyId));
 }
 
 function copyDomain(target: LocalStore, source: LocalStore, domain: Domain) {
@@ -736,6 +766,25 @@ function getTenantRentStatus(store: LocalStore, tenantId: string) {
   };
 }
 
+async function loadArchivedProperties(source: CopilotDataSource) {
+  if (source.mode === "local") {
+    return source.localStore.properties
+      .filter((property) => Boolean(property.archivedAt))
+      .map((property) => ({ archivedAt: property.archivedAt, name: property.name, address: formatPropertyAddress(property) }));
+  }
+
+  const rows = await selectRows(
+    source.supabase.from("properties").select("*").eq("user_id", source.userId).not("archived_at", "is", null).order("name"),
+    "properties",
+  );
+
+  return rows.map(mapProperty).map((property) => ({
+    archivedAt: property.archivedAt,
+    name: property.name,
+    address: formatPropertyAddress(property),
+  }));
+}
+
 function getStatusReason(label: string, row: RentChargeRow) {
   if (label === "Payé") {
     return row.lastPaymentAt ? `Solde payé. Dernier paiement reçu le ${row.lastPaymentAt}.` : "Solde payé.";
@@ -985,6 +1034,7 @@ function mapProperty(row: Record<string, unknown>): Property {
     name: stringValue(row.name || "Immeuble"),
     postalCode: stringValue(row.postal_code),
     propertyType: normalizePropertyType(row.property_type ?? row.type),
+    archivedAt: nullableString(row.archived_at),
     province: stringValue(row.province || row.province_code || "Québec"),
     provinceCode: stringValue(row.province_code || row.province || "QC"),
     street: optionalMapString(row.street),

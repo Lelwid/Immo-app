@@ -544,7 +544,7 @@ export default function DocumentsPage() {
                 </div>
 
                 <Info label="Immeuble" value={getPropertyName(document.propertyId, snapshotStore)} />
-                <Info label="Logement" value={getUnitLabel(document.unitId, snapshotStore)} />
+                {document.unitId ? <Info label="Logement" value={getUnitLabel(document.unitId, snapshotStore)} /> : null}
                 <Info label="Téléversement" value={formatDate(document.uploadDate)} />
                 <div className="flex flex-wrap gap-2 md:justify-end" onClick={(event) => event.stopPropagation()}>
                   <DocumentFileActions document={document} onDownload={trackDocumentDownload} />
@@ -1139,7 +1139,7 @@ function DocumentInformation({ document, store }: { document: PropertyDocument; 
       <InfoCard label="Nom du document" value={document.name} />
       <InfoCard label="Type" value={documentTypeLabel[document.type]} />
       <InfoCard label="Immeuble" value={getPropertyName(document.propertyId, store)} />
-      <InfoCard label="Logement" value={getUnitLabel(document.unitId, store)} />
+      {document.unitId ? <InfoCard label="Logement" value={getUnitLabel(document.unitId, store)} /> : null}
       <InfoCard label="Entité liée" value={getRelatedEntityDescription(document, store)} />
       <InfoCard label="Date de téléversement" value={formatDate(document.uploadDate)} />
       <InfoCard label="Taille du fichier" value={formatFileSize(document.size)} />

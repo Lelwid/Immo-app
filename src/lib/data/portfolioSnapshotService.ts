@@ -183,18 +183,26 @@ function isStructuredSupabaseCause(value: unknown): value is {
 
 function normalizeSnapshot(store: LocalStore): PortfolioSnapshot {
   const properties = uniqueById(store.properties);
-  const units = uniqueById(store.units).sort(compareUnits);
-  const tenants = uniqueById(store.tenants);
-  const leases = uniqueById(store.leases);
-  const payments = uniqueById(store.payments);
-  const rentCharges = uniqueById(store.rentCharges ?? []);
-  const paymentTransactions = uniqueById(store.paymentTransactions ?? []);
-  const paymentAllocations = uniqueById(store.paymentAllocations ?? []);
-  const notes = uniqueById(store.notes);
-  const activities = uniqueById(store.activities);
-  const documents = uniqueById(store.documents);
-  const maintenanceRequests = uniqueById(store.maintenanceTickets);
-  const tasks = uniqueById(store.tasks);
+  const propertyIds = new Set(properties.map((property) => property.id));
+  const allLeases = uniqueById(store.leases);
+  const leases = allLeases.filter((item) => propertyIds.has(item.propertyId));
+  const leaseTenantIds = new Set(allLeases.map((lease) => lease.tenantId));
+  const activePropertyTenantIds = new Set(leases.map((lease) => lease.tenantId));
+  const units = uniqueById(store.units).filter((item) => propertyIds.has(item.propertyId)).sort(compareUnits);
+  const tenants = uniqueById(store.tenants).filter((tenant) => !leaseTenantIds.has(tenant.id) || activePropertyTenantIds.has(tenant.id));
+  const payments = uniqueById(store.payments).filter((item) => propertyIds.has(item.propertyId));
+  const rentCharges = uniqueById(store.rentCharges ?? []).filter((item) => propertyIds.has(item.propertyId));
+  const paymentTransactions = uniqueById(store.paymentTransactions ?? []).filter((item) => propertyIds.has(item.propertyId));
+  const transactionIds = new Set(paymentTransactions.map((item) => item.id));
+  const chargeIds = new Set(rentCharges.map((item) => item.id));
+  const paymentAllocations = uniqueById(store.paymentAllocations ?? []).filter(
+    (item) => transactionIds.has(item.transactionId) && chargeIds.has(item.rentChargeId),
+  );
+  const notes = uniqueById(store.notes).filter((item) => !item.propertyId || propertyIds.has(item.propertyId));
+  const activities = uniqueById(store.activities).filter((item) => !item.propertyId || propertyIds.has(item.propertyId));
+  const documents = uniqueById(store.documents).filter((item) => propertyIds.has(item.propertyId));
+  const maintenanceRequests = uniqueById(store.maintenanceTickets).filter((item) => propertyIds.has(item.propertyId));
+  const tasks = uniqueById(store.tasks).filter((item) => !item.propertyId || propertyIds.has(item.propertyId));
 
   return {
     properties,

@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { analyzeLeaseText } from "@/lib/ai/lease-analyzer";
 import { extractDocumentContent, type AdditionalImagePageInput } from "@/lib/server/documentContentExtractor";
 import { getDevelopmentErrorDetails, getPublicAnalysisMessage, HabixaAnalysisError, sanitizeCause, toHabixaAnalysisError } from "@/lib/server/habixaAiErrors";
+import { consumeAiQuota } from "@/lib/server/aiRateLimit";
 import type { DocumentAiExtraction, DocumentAiExtractionMethod, DocumentAnalysisErrorCode, LeaseExtraction, PropertyDocument } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -104,6 +105,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if ((localMode && !localDocumentIdPattern.test(documentId)) || (!localMode && !uuidPattern.test(documentId))) {
       return NextResponse.json({ error: "Identifiant de document invalide.", status: "failed" }, { status: 400 });
+    }
+
+    const quota = await consumeAiQuota(authenticated.supabase, "document_ai");
+    if (!quota.allowed) {
+      return NextResponse.json(
+        { code: "AI_QUOTA_EXCEEDED", error: "Limite d’analyses atteinte. Réessayez plus tard.", status: "failed" },
+        { headers: { "Retry-After": String(quota.retryAfterSeconds) }, status: 429 },
+      );
     }
 
     logAnalysisStep("starting", {
@@ -671,9 +680,14 @@ function getHttpStatusForError(code: DocumentAnalysisErrorCode) {
     return 404;
   }
 
+  if (code === "AI_QUOTA_EXCEEDED" || code === "OPENAI_RATE_LIMIT") {
+    return 429;
+  }
+
   if (
     code === "DOCUMENT_FILE_MISSING" ||
     code === "PDF_INVALID" ||
+    code === "PDF_READ_ERROR" ||
     code === "IMAGE_INVALID" ||
     code === "IMAGE_QUALITY_ERROR" ||
     code === "UNSUPPORTED_DOCUMENT" ||

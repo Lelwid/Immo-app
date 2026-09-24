@@ -1,4 +1,5 @@
 import { RouteShell } from "@/app/components/route-shell";
+import Link from "next/link";
 
 const settingsSections = [
   {
@@ -29,6 +30,11 @@ export default function SettingsPage() {
             <p className="mt-2 text-sm leading-6 text-[var(--muted)]">{section.description}</p>
           </article>
         ))}
+      </section>
+      <section className="mt-5 flex flex-wrap gap-3">
+        <Link className="btn-primary" href="/feedback">Donner mon avis</Link>
+        <Link className="btn-secondary" href="/confidentialite">Confidentialité</Link>
+        <Link className="btn-secondary" href="/conditions">Conditions d’utilisation</Link>
       </section>
     </RouteShell>
   );

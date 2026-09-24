@@ -88,7 +88,8 @@ export function DocumentUploadModal({
         .map(([value, label]) => [value, label]),
     [propertyId],
   );
-  const canSubmit = Boolean(selectedFile && form.name.trim() && form.propertyId && form.relatedEntityId && !saving);
+  const selectedFileError = selectedFile ? validateDocumentFile(selectedFile) : null;
+  const canSubmit = Boolean(selectedFile && !selectedFileError && form.name.trim() && form.propertyId && form.relatedEntityId && !saving);
 
   async function submitDocument() {
     if (!canSubmit || !selectedFile) {

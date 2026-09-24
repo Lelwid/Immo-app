@@ -10,7 +10,7 @@ import { hasActiveTenantPortalAccount } from "@/lib/data/tenantPortalService";
 import { STORAGE_KEY } from "@/lib/local-storage";
 import { ONBOARDING_KEY, ONBOARDING_TRANSITION_KEY, shouldRequireOnboarding } from "@/lib/onboardingDecision";
 
-const publicRoutes = new Set(["/connexion", "/inscription", "/mot-de-passe-oublie", "/onboarding", "/auth/callback"]);
+const publicRoutes = new Set(["/connexion", "/inscription", "/mot-de-passe-oublie", "/onboarding", "/auth/callback", "/confidentialite", "/conditions"]);
 const protectedPrefixes = [
   "/dashboard",
   "/immeubles",
@@ -25,6 +25,7 @@ const protectedPrefixes = [
   "/locataires",
   "/notifications",
   "/parametres",
+  "/feedback",
 ];
 
 export function AuthRouteGate({ children }: { children: ReactNode }) {

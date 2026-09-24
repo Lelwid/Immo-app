@@ -39,6 +39,7 @@ export function getPublicAnalysisMessage(error: HabixaAnalysisError) {
 
   const messages: Record<DocumentAnalysisErrorCode, string> = {
     AI_ANALYSIS_ERROR: "Nexbail AI n'a pas pu analyser ce document.",
+    AI_QUOTA_EXCEEDED: "Limite d’analyses atteinte. Réessayez plus tard.",
     AI_MODEL_NOT_CONFIGURED: "Nexbail AI est temporairement indisponible.",
     AI_SCHEMA_ERROR: "Nexbail AI n'a pas retourné un résultat exploitable.",
     DATABASE_ERROR: "Impossible d'enregistrer l'analyse du document.",

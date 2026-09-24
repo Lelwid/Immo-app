@@ -52,7 +52,10 @@ const sidebarGroups: { label: string; items: SidebarItem[] }[] = [
   },
   {
     label: "Support",
-    items: [{ href: "/parametres", label: "Paramètres", icon: "settings" }],
+    items: [
+      { href: "/feedback", label: "Donner mon avis", icon: "message-circle" },
+      { href: "/parametres", label: "Paramètres", icon: "settings" },
+    ],
   },
 ];
 

@@ -168,6 +168,9 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
             </Link>
           )}
         </div>
+        <p className="mt-6 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
+          En utilisant Nexbail, vous acceptez les <Link className="underline" href="/conditions">conditions d’utilisation</Link> et reconnaissez la <Link className="underline" href="/confidentialite">politique de confidentialité</Link>.
+        </p>
       </section>
     </main>
   );

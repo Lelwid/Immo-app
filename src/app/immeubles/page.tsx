@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import type { KeyboardEvent } from "react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
@@ -12,9 +12,14 @@ import { addActivityToStore } from "@/lib/data/activityStore";
 import { shouldUseSupabase } from "@/lib/data/dataMode";
 import { clearPortfolioSnapshotCache } from "@/lib/data/portfolioSnapshotService";
 import {
+  archiveProperty,
   createProperty,
   deleteProperty as deletePropertyRecord,
+  getArchivedProperties,
+  getPropertyDeletionMode,
+  restoreProperty,
   updateProperty,
+  type PropertyDeletionMode,
 } from "@/lib/data/propertiesService";
 import { getUnitOccupancy } from "@/lib/data/leaseAdapters";
 import { createUnitsForProperty } from "@/lib/data/unitsService";
@@ -77,8 +82,14 @@ export default function ImmeublesPage() {
   const [manualAddressMode, setManualAddressMode] = useState(false);
   const [showPropertyForm, setShowPropertyForm] = useState(false);
   const [propertyToDelete, setPropertyToDelete] = useState<PropertyDashboard | null>(null);
+  const [propertyActionMode, setPropertyActionMode] = useState<PropertyDeletionMode | null>(null);
+  const [archivedProperties, setArchivedProperties] = useState<Property[]>([]);
   const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [showResetModal, setShowResetModal] = useState(false);
+
+  useEffect(() => {
+    void getArchivedProperties().then(setArchivedProperties).catch(() => setArchivedProperties([]));
+  }, []);
 
   async function refreshImmeublesSnapshot() {
     try {
@@ -88,6 +99,7 @@ export default function ImmeublesPage() {
       }
       setPropertyRecords(nextSnapshot.properties);
       setUnitRecords(nextSnapshot.units);
+      setArchivedProperties(await getArchivedProperties());
       setSnapshotSyncError(null);
     } catch (error) {
       console.error("Impossible de rafraîchir les immeubles.", error);
@@ -225,9 +237,17 @@ export default function ImmeublesPage() {
     setPropertyForm(applyAddressToPropertyForm(nextForm, manualAddress));
   }
 
-  function openDeleteModal(property: PropertyDashboard) {
+  async function openDeleteModal(property: PropertyDashboard) {
     setPropertyToDelete(property);
     setDeleteConfirmation("");
+    setPropertyActionMode(null);
+
+    try {
+      setPropertyActionMode(await getPropertyDeletionMode(property.id));
+    } catch (error: unknown) {
+      setPropertyError(getErrorMessage(error, "Impossible de vérifier l’historique de l’immeuble."));
+      setPropertyToDelete(null);
+    }
   }
 
   async function confirmPropertyDelete() {
@@ -241,9 +261,15 @@ export default function ImmeublesPage() {
     setPropertyError(null);
 
     try {
-      await deletePropertyRecord(propertyId);
+      if (propertyActionMode === "archive") {
+        await archiveProperty(propertyId);
+      } else if (propertyActionMode === "delete") {
+        await deletePropertyRecord(propertyId);
+      } else {
+        return;
+      }
 
-      if (!shouldUseSupabase() || !isSupabaseConfigured) {
+      if ((!shouldUseSupabase() || !isSupabaseConfigured) && propertyActionMode === "delete") {
         setStore((current) => {
           const unitIds = current.units.filter((unit) => unit.propertyId === propertyId).map((unit) => unit.id);
           const propertyLeases = current.leases.filter((lease) => lease.propertyId === propertyId);
@@ -282,8 +308,22 @@ export default function ImmeublesPage() {
 
       setPropertyToDelete(null);
       setDeleteConfirmation("");
+      setPropertyActionMode(null);
     } catch (error: unknown) {
-      setPropertyError(getErrorMessage(error, "Impossible de supprimer l’immeuble."));
+      setPropertyError(getErrorMessage(error, propertyActionMode === "archive" ? "Impossible d’archiver l’immeuble." : "Impossible de supprimer l’immeuble."));
+    } finally {
+      setIsSavingProperty(false);
+    }
+  }
+
+  async function restoreArchivedProperty(propertyId: string) {
+    setIsSavingProperty(true);
+    setPropertyError(null);
+    try {
+      await restoreProperty(propertyId);
+      await refreshImmeublesSnapshot();
+    } catch (error: unknown) {
+      setPropertyError(getErrorMessage(error, "Impossible de restaurer l’immeuble."));
     } finally {
       setIsSavingProperty(false);
     }
@@ -353,6 +393,24 @@ export default function ImmeublesPage() {
         ) : (
           <EmptyPortfolioState disabled={isSavingProperty} onAddProperty={openCreatePropertyModal} onUseDemoData={() => setShowResetModal(true)} />
         )}
+
+        {archivedProperties.length > 0 ? (
+          <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+            <h2 className="text-lg font-semibold text-[var(--foreground)]">Immeubles archivés</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">Les données et l’historique sont conservés, mais exclus des vues actives et des indicateurs.</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {archivedProperties.map((property) => (
+                <article key={property.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                  <h3 className="font-semibold text-[var(--foreground)]">{property.name}</h3>
+                  <p className="mt-1 text-sm text-[var(--muted)]">{property.address}</p>
+                  <button className="btn-secondary mt-4 disabled:cursor-not-allowed disabled:opacity-50" disabled={isSavingProperty} onClick={() => void restoreArchivedProperty(property.id)} type="button">
+                    Restaurer
+                  </button>
+                </article>
+              ))}
+            </div>
+          </section>
+        ) : null}
       </section>
 
       {showPropertyForm ? (
@@ -427,6 +485,7 @@ export default function ImmeublesPage() {
       {propertyToDelete ? (
         <PropertyDeleteModal
           confirmation={deleteConfirmation}
+          mode={propertyActionMode}
           onCancel={() => setPropertyToDelete(null)}
           onChangeConfirmation={setDeleteConfirmation}
           onConfirm={confirmPropertyDelete}
@@ -692,6 +751,7 @@ function FormModal({
 
 function PropertyDeleteModal({
   confirmation,
+  mode,
   onCancel,
   onChangeConfirmation,
   onConfirm,
@@ -700,6 +760,7 @@ function PropertyDeleteModal({
   store,
 }: {
   confirmation: string;
+  mode: PropertyDeletionMode | null;
   onCancel: () => void;
   onChangeConfirmation: (value: string) => void;
   onConfirm: () => void;
@@ -715,15 +776,18 @@ function PropertyDeleteModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
       <div className="w-full max-w-xl rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
-        <p className="text-sm font-semibold uppercase text-[color:var(--red)]">Action destructive</p>
-        <h2 className="mt-2 text-2xl font-semibold">Supprimer {property.name}</h2>
+        <p className="text-sm font-semibold uppercase text-[color:var(--red)]">{mode === "archive" ? "Historique protégé" : "Action destructive"}</p>
+        <h2 className="mt-2 text-2xl font-semibold">{mode === "archive" ? "Archiver" : "Supprimer"} {property.name}</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">
-          Cette suppression est permanente dans votre stockage local. Les données associées à cet immeuble seront retirées
-          du portefeuille courant.
+          {mode === "archive"
+            ? "Cet immeuble possède un historique métier. Il sera retiré des vues actives, tandis que ses baux, finances, documents et activités seront conservés."
+            : mode === "delete"
+              ? "Cet immeuble ne possède pas d’historique métier. Sa suppression et celle de ses logements vides seront permanentes."
+              : "Vérification de l’historique de l’immeuble…"}
         </p>
 
         <div className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
-          <p className="text-sm font-semibold text-[var(--foreground)]">Ce qui sera supprimé</p>
+          <p className="text-sm font-semibold text-[var(--foreground)]">{mode === "archive" ? "Données conservées" : "Ce qui sera supprimé"}</p>
           <ul className="mt-3 grid gap-2 text-sm text-[var(--muted)]">
             <li>{unitIds.length} logements</li>
             <li>{tenantIds.size} locataires assignés</li>
@@ -745,8 +809,8 @@ function PropertyDeleteModal({
           <button className="btn-secondary disabled:cursor-not-allowed disabled:opacity-50" disabled={saving} onClick={onCancel} type="button">
             Annuler
           </button>
-          <button className="btn-danger disabled:cursor-not-allowed disabled:opacity-40" disabled={!canDelete || saving} onClick={onConfirm} type="button">
-            {saving ? "Suppression..." : "Confirmer la suppression"}
+          <button className="btn-danger disabled:cursor-not-allowed disabled:opacity-40" disabled={!canDelete || saving || !mode} onClick={onConfirm} type="button">
+            {saving ? (mode === "archive" ? "Archivage..." : "Suppression...") : (mode === "archive" ? "Confirmer l’archivage" : "Confirmer la suppression")}
           </button>
         </div>
       </div>

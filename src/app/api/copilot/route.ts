@@ -1,6 +1,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse, type NextRequest } from "next/server";
 import { copilotToolDefinitions, createCopilotToolRunner, type CopilotEntityContext } from "@/lib/ai/copilotTools";
+import { consumeAiQuota } from "@/lib/server/aiRateLimit";
+import { OpenAiHttpError, requestOpenAiJson } from "@/lib/server/openAiHttp";
 import type { LocalStore } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -57,6 +59,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const quota = await consumeAiQuota(authenticated.supabase, "copilot");
+    if (!quota.allowed) {
+      return NextResponse.json(
+        { error: "Limite du Copilot atteinte. Réessayez plus tard." },
+        { headers: { "Retry-After": String(quota.retryAfterSeconds) }, status: 429 },
+      );
+    }
+  } catch {
+    return NextResponse.json({ error: "Le Copilot est temporairement indisponible. Réessayez plus tard." }, { status: 503 });
+  }
+
+  try {
     const dataSource = getCopilotDataSource(body, authenticated);
     const runTool = createCopilotToolRunner(dataSource, normalizeContext(body?.context));
     let toolCallCount = 0;
@@ -106,6 +120,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ message: "Je n'ai pas pu finaliser la réponse avec les données disponibles. Reformulez la question ou précisez l'entité." });
   } catch (error) {
     console.error("[Nexbail Copilot] Requête échouée.", sanitizeError(error));
+    if (error instanceof OpenAiHttpError && error.kind === "timeout") {
+      return NextResponse.json({ error: "Le Copilot a pris trop de temps à répondre. Réessayez." }, { status: 504 });
+    }
+    if (error instanceof OpenAiHttpError) {
+      return NextResponse.json({ error: "Le Copilot est temporairement indisponible. Réessayez." }, { status: 502 });
+    }
     return NextResponse.json({ error: "Impossible d'interroger Nexbail Copilot." }, { status: 500 });
   }
 }
@@ -168,30 +188,14 @@ function isRequestTooLarge(request: NextRequest, maxBytes: number) {
 }
 
 async function callOpenAi(input: unknown[]) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    body: JSON.stringify({
+  return requestOpenAiJson({
       input,
       instructions: buildSystemPrompt(),
       max_output_tokens: 900,
       model: process.env.HABIXA_COPILOT_MODEL || process.env.HABIXA_AI_MODEL || "gpt-4.1-mini",
       temperature: 0.2,
       tools: copilotToolDefinitions,
-    }),
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
-
-  const payload = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    console.error("[Nexbail Copilot] OpenAI error.", sanitizeError(payload));
-    throw new Error("OpenAI request failed.");
-  }
-
-  return payload;
+    }, process.env.OPENAI_API_KEY!, { timeoutMs: 30_000 });
 }
 
 function buildSystemPrompt() {
@@ -206,6 +210,7 @@ function buildSystemPrompt() {
     "Pour les paiements et statuts de loyer, utilise uniquement le registre des loyers, les transactions et les allocations. Ignore les statuts legacy du bail ou du logement comme source de vérité.",
     "Pour tout total dû, reçu, restant ou en retard d'un mois, utilise get_rent_ledger_summary. L'activité récente n'est jamais une source de vérité financière.",
     "Pour le montant total dû par un locataire, utilise rentStatus.totalBalance et rentStatus.outstandingCharges de get_tenant_summary. Ne réponds jamais avec une seule charge si plusieurs charges sont impayées.",
+    "Pour une question sur les immeubles archivés, utilise get_archived_properties. Ils sont exclus des indicateurs du portefeuille actif.",
     "Distingue clairement les faits calculés, les hypothèses et les recommandations.",
     "Si une donnée manque, dis-le simplement au lieu d'inventer.",
     "",
