@@ -81,10 +81,16 @@ export async function POST(request: NextRequest) {
       token: invitation.token,
     });
   } catch (error) {
-    await authenticated.supabase
+    const { error: revocationError } = await authenticated.supabase
       .from("tenant_portal_invitations")
       .update({ status: "revoked" })
       .eq("id", invitation.id);
+
+    const failureCode = error instanceof TenantInvitationEmailConfigurationError ? "EMAIL_NOT_CONFIGURED" : "EMAIL_DELIVERY_FAILED";
+    console.error("[Nexbail Email] Échec d'envoi de l'invitation.", {
+      code: failureCode,
+      invitationRevoked: !revocationError,
+    });
 
     if (error instanceof TenantInvitationEmailConfigurationError) {
       return invitationError("EMAIL_NOT_CONFIGURED", "L'envoi des invitations par courriel doit être configuré.", 503);
