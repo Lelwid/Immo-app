@@ -80,7 +80,7 @@ const unitCounts: Record<PropertyType, number> = {
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { configured } = useAuth();
+  const { configured, signOut } = useAuth();
   const [step, setStep] = useState(0);
   const [propertyForm, setPropertyForm] = useState<PropertyForm>({
     name: "",
@@ -269,14 +269,22 @@ export default function OnboardingPage() {
                 Configurez rapidement vos immeubles, locataires, baux, paiements et entretiens pour démarrer avec une base claire.
               </p>
             </div>
-            {!configured ? <div className="flex flex-wrap gap-2">
-              <button className="btn-secondary" onClick={skipOnboarding} type="button">
-                Passer
-              </button>
-              <button className="btn-secondary" onClick={useDemoData} type="button">
-                Utiliser les données démo
-              </button>
-            </div> : null}
+            <div className="flex flex-wrap gap-2">
+              {configured ? (
+                <button className="btn-secondary" onClick={() => void signOut()} type="button">
+                  Déconnexion
+                </button>
+              ) : (
+                <>
+                  <button className="btn-secondary" onClick={skipOnboarding} type="button">
+                    Passer
+                  </button>
+                  <button className="btn-secondary" onClick={useDemoData} type="button">
+                    Utiliser les données démo
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           <div className="mt-5">
             <div className="flex items-center justify-between text-xs font-semibold text-[var(--muted)]">
