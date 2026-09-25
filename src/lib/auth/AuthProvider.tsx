@@ -12,6 +12,7 @@ export const DEMO_AUTH_KEY = "demoAuth";
 type AuthContextValue = {
   configured: boolean;
   loading: boolean;
+  passwordRecovery: boolean;
   session: Session | null;
   user: User | null;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
@@ -27,6 +28,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   useEffect(() => {
     if (!supabase) {
@@ -45,8 +47,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       clearPortfolioSnapshotCache();
+      if (event === "PASSWORD_RECOVERY") {
+        setPasswordRecovery(true);
+      } else if (event === "SIGNED_OUT") {
+        setPasswordRecovery(false);
+      }
       if (nextSession?.user) {
         setDataMode("supabase");
       }
@@ -61,6 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () => ({
       configured: isSupabaseConfigured,
       loading,
+      passwordRecovery,
       session,
       user: session?.user ?? null,
       async signInWithEmail(email, password) {
@@ -136,7 +144,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
       },
     }),
-    [loading, session],
+    [loading, passwordRecovery, session],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -10,7 +10,7 @@ type AuthMode = "connexion" | "inscription" | "reset";
 export function AuthCard({ mode }: { mode: AuthMode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { configured, loading, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail, updatePassword, user } = useAuth();
+  const { configured, loading, passwordRecovery, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail, updatePassword } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
@@ -21,7 +21,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
   const isSignup = mode === "inscription";
   const isPasswordUpdate = isReset && searchParams.get("mode") === "update";
   const recoveryLinkPending = isPasswordUpdate && loading;
-  const recoveryLinkInvalid = isPasswordUpdate && !loading && !user;
+  const recoveryLinkInvalid = isPasswordUpdate && !loading && !passwordRecovery;
   const redirectPath = getSafeRedirect(searchParams.get("redirect"), isSignup ? "/onboarding" : "/dashboard");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
