@@ -195,6 +195,11 @@ export default function OnboardingPage() {
 
       debugOnboarding(runId, "redirect-dashboard");
       didRedirect = true;
+      if (dataMode === "supabase") {
+        window.location.replace("/dashboard");
+        return;
+      }
+
       router.replace("/dashboard");
     } catch (error) {
       console.error("Impossible de terminer l'accueil.", error);
@@ -240,7 +245,7 @@ export default function OnboardingPage() {
 
       setOnboardingStatus("completed");
       setOnboardingTransition(runId, "completed");
-      router.replace("/dashboard");
+      window.location.replace("/dashboard");
     } catch (error) {
       console.error("Impossible de vérifier le portefeuille.", error);
       clearOnboardingTransition(runId, "retry-error");
