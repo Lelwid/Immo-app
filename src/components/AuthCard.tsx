@@ -10,14 +10,18 @@ type AuthMode = "connexion" | "inscription" | "reset";
 export function AuthCard({ mode }: { mode: AuthMode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { configured, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail } = useAuth();
+  const { configured, loading, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail, updatePassword, user } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<"error" | "success">("success");
   const [submitting, setSubmitting] = useState(false);
   const isReset = mode === "reset";
   const isSignup = mode === "inscription";
+  const isPasswordUpdate = isReset && searchParams.get("mode") === "update";
+  const recoveryLinkPending = isPasswordUpdate && loading;
+  const recoveryLinkInvalid = isPasswordUpdate && !loading && !user;
   const redirectPath = getSafeRedirect(searchParams.get("redirect"), isSignup ? "/onboarding" : "/dashboard");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -26,7 +30,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
       return;
     }
 
-    const validationMessage = validateAuthForm({ email, password, isReset, isSignup });
+    const validationMessage = validateAuthForm({ email, password, passwordConfirmation, isPasswordUpdate, isReset, isSignup });
     if (validationMessage) {
       setMessageTone("error");
       setMessage(validationMessage);
@@ -36,17 +40,25 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     setSubmitting(true);
     setMessage("");
 
-    const result: { error?: string; confirmationRequired?: boolean } = isReset
-      ? await resetPassword(email)
-      : isSignup
-        ? await signUpWithEmail(email, password, redirectPath)
-        : await signInWithEmail(email, password);
+    const result: { error?: string; confirmationRequired?: boolean } = isPasswordUpdate
+      ? await updatePassword(password)
+      : isReset
+        ? await resetPassword(email)
+        : isSignup
+          ? await signUpWithEmail(email, password, redirectPath)
+          : await signInWithEmail(email, password);
 
     setSubmitting(false);
 
     if (result.error) {
       setMessageTone("error");
       setMessage(getFriendlyAuthError(result.error, mode));
+      return;
+    }
+
+    if (isPasswordUpdate) {
+      setMessageTone("success");
+      setMessage("Votre mot de passe a été mis à jour.");
       return;
     }
 
@@ -92,10 +104,12 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
         <div className="mb-6">
           <p className="text-sm font-medium text-[var(--muted)]">Nexbail</p>
           <h1 className="mt-1 text-3xl font-semibold">
-            {isReset ? "Mot de passe oublié" : isSignup ? "Créer un compte" : "Connexion"}
+            {isPasswordUpdate ? "Créer un nouveau mot de passe" : isReset ? "Mot de passe oublié" : isSignup ? "Créer un compte" : "Connexion"}
           </h1>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            {isReset
+            {isPasswordUpdate
+              ? "Choisissez le nouveau mot de passe de votre compte Nexbail."
+              : isReset
               ? "Recevez un lien pour réinitialiser votre mot de passe."
               : "Accédez à votre portefeuille immobilier sécurisé."}
           </p>
@@ -107,18 +121,34 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
           </div>
         ) : null}
 
-        <form className="grid gap-3" onSubmit={submit}>
-          <TextInput autoComplete="email" label="Courriel" type="email" value={email} onChange={setEmail} />
-          {!isReset ? (
-            <>
-              <TextInput autoComplete={isSignup ? "new-password" : "current-password"} label="Mot de passe" minLength={isSignup ? 8 : undefined} type="password" value={password} onChange={setPassword} />
-              {isSignup ? <p className="text-xs text-[var(--muted)]">Au moins 8 caractères.</p> : null}
-            </>
-          ) : null}
-          <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || !email || (!isReset && !password)} type="submit">
-            {submitting ? "Un instant..." : isReset ? "Envoyer le lien" : isSignup ? "S’inscrire" : "Se connecter"}
-          </button>
-        </form>
+        {recoveryLinkPending ? (
+          <p className="text-sm text-[var(--muted)]" role="status">
+            Validation du lien de réinitialisation…
+          </p>
+        ) : recoveryLinkInvalid ? (
+          <p className="rounded-lg border border-[color:var(--red)]/40 bg-[color:var(--red)]/10 p-3 text-sm text-[color:var(--red)]" role="alert">
+            Ce lien de réinitialisation est invalide ou expiré. Demandez un nouveau lien.
+          </p>
+        ) : (
+          <form className="grid gap-3" onSubmit={submit}>
+            {!isPasswordUpdate ? <TextInput autoComplete="email" label="Courriel" type="email" value={email} onChange={setEmail} /> : null}
+            {isPasswordUpdate ? (
+              <>
+                <TextInput autoComplete="new-password" label="Nouveau mot de passe" minLength={8} type="password" value={password} onChange={setPassword} />
+                <TextInput autoComplete="new-password" label="Confirmer le mot de passe" minLength={8} type="password" value={passwordConfirmation} onChange={setPasswordConfirmation} />
+                <p className="text-xs text-[var(--muted)]">Au moins 8 caractères.</p>
+              </>
+            ) : !isReset ? (
+              <>
+                <TextInput autoComplete={isSignup ? "new-password" : "current-password"} label="Mot de passe" minLength={isSignup ? 8 : undefined} type="password" value={password} onChange={setPassword} />
+                {isSignup ? <p className="text-xs text-[var(--muted)]">Au moins 8 caractères.</p> : null}
+              </>
+            ) : null}
+            <button className="btn-primary disabled:cursor-not-allowed disabled:opacity-50" disabled={submitting || (!isPasswordUpdate && !email) || (isPasswordUpdate && (!password || !passwordConfirmation)) || (!isReset && !password)} type="submit">
+              {submitting ? "Un instant..." : isPasswordUpdate ? "Mettre à jour le mot de passe" : isReset ? "Envoyer le lien" : isSignup ? "S’inscrire" : "Se connecter"}
+            </button>
+          </form>
+        )}
 
         {!isReset ? (
           <button className="btn-secondary mt-3 w-full" disabled={submitting} onClick={loginGoogle} type="button">
@@ -144,6 +174,12 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
           >
             {message}
           </p>
+        ) : null}
+
+        {isPasswordUpdate && messageTone === "success" && message ? (
+          <Link className="btn-primary mt-3 inline-flex w-full justify-center" href="/dashboard">
+            Accéder au tableau de bord
+          </Link>
         ) : null}
 
         <div className="mt-6 grid gap-2 text-sm text-[var(--muted)]">
@@ -218,17 +254,29 @@ function TextInput({
 
 function validateAuthForm({
   email,
+  isPasswordUpdate,
   isReset,
   isSignup,
   password,
+  passwordConfirmation,
 }: {
   email: string;
+  isPasswordUpdate: boolean;
   isReset: boolean;
   isSignup: boolean;
   password: string;
+  passwordConfirmation: string;
 }) {
-  if (!/^\S+@\S+\.\S+$/.test(email.trim())) {
+  if (!isPasswordUpdate && !/^\S+@\S+\.\S+$/.test(email.trim())) {
     return "Entrez une adresse courriel valide.";
+  }
+
+  if (isPasswordUpdate && password.length < 8) {
+    return "Le mot de passe doit contenir au moins 8 caractères.";
+  }
+
+  if (isPasswordUpdate && password !== passwordConfirmation) {
+    return "Les mots de passe ne correspondent pas.";
   }
 
   if (!isReset && !password) {

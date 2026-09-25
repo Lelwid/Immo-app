@@ -18,6 +18,7 @@ type AuthContextValue = {
   signUpWithEmail: (email: string, password: string, redirectPath?: string) => Promise<{ error?: string; confirmationRequired?: boolean }>;
   signInWithGoogle: (redirectPath?: string) => Promise<{ error?: string }>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
+  updatePassword: (password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 };
 
@@ -113,8 +114,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/connexion`,
+          redirectTo: `${window.location.origin}/mot-de-passe-oublie?mode=update`,
         });
+        return error ? { error: error.message } : {};
+      },
+      async updatePassword(password) {
+        if (!supabase) {
+          return { error: "Supabase n’est pas encore configuré." };
+        }
+
+        const { error } = await supabase.auth.updateUser({ password });
         return error ? { error: error.message } : {};
       },
       async signOut() {
