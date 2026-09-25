@@ -147,6 +147,40 @@ export function getUnitOccupancy(unit: Unit, leases: Lease[], tenants: Tenant[])
   };
 }
 
+export function getTenantOccupancy(tenantId: string, units: Unit[], leases: Lease[], tenants: Tenant[]): UnitOccupationView | null {
+  const activeLease = leases.find((lease) => lease.tenantId === tenantId && lease.status === "active");
+
+  if (activeLease) {
+    const activeUnit = units.find((unit) => unit.id === activeLease.unitId);
+    return activeUnit ? getUnitOccupancy(activeUnit, leases, tenants) : null;
+  }
+
+  const latestLease = leases
+    .filter((lease) => lease.tenantId === tenantId)
+    .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+  const unit = latestLease ? units.find((candidate) => candidate.id === latestLease.unitId) : null;
+  const tenant = tenants.find((candidate) => candidate.id === tenantId) ?? null;
+
+  if (!latestLease || !unit) {
+    return null;
+  }
+
+  return {
+    unitId: unit.id,
+    propertyId: unit.propertyId,
+    unitName: unit.label,
+    isOccupied: false,
+    tenantId,
+    tenantName: tenant ? getTenantName(tenant) : "Locataire introuvable",
+    monthlyRent: latestLease.monthlyRent,
+    leaseStartDate: latestLease.startDate,
+    leaseEndDate: latestLease.endDate,
+    paymentStatus: fromRentPaymentStatus(latestLease.paymentStatus),
+    leaseStatus: latestLease.status,
+    source: "lease",
+  };
+}
+
 export function getUnitsWithOccupancy(units: Unit[], leases: Lease[], tenants: Tenant[]) {
   return units.map((unit) => ({
     unit,

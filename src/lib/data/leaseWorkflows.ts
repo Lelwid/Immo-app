@@ -1,5 +1,6 @@
 import { applyActivitySideEffect } from "@/lib/data/activitySideEffectsService";
 import { getActiveLeaseForUnit, getUnitOccupancy } from "@/lib/data/leaseAdapters";
+import { isLeaseEndedByDate } from "@/lib/data/financialTracking";
 import { validateLeaseDateRange } from "@/lib/data/leaseValidation";
 import { applyTenantNoteSideEffect } from "@/lib/data/notesSideEffectsService";
 import { applyInitialPaymentSideEffect, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
@@ -14,6 +15,7 @@ export type AssignTenantToUnitInput = {
   monthlyRent: number;
   leaseStartDate: string;
   leaseEndDate: string;
+  financialTrackingStartDate?: string | null;
   paymentStatus: InitialPaymentStatus;
   initialAmountPaid?: number;
   paymentReceivedDate?: string;
@@ -26,6 +28,7 @@ export type SaveLeaseInput = {
   monthlyRent: number;
   leaseStartDate: string;
   leaseEndDate: string;
+  financialTrackingStartDate?: string | null;
   paymentStatus: PaymentStatus;
   notes?: string;
 };
@@ -78,8 +81,10 @@ export async function assignTenantToUnit(store: LocalStore, input: AssignTenantT
     monthlyRent: input.monthlyRent,
     leaseStartDate: input.leaseStartDate,
     leaseEndDate: input.leaseEndDate,
+    financialTrackingStartDate: input.financialTrackingStartDate,
     paymentStatus: input.paymentStatus,
     notes: input.notes,
+    status: isLeaseEndedByDate(input.leaseEndDate) ? "ended" : "active",
   });
   let nextStore: LocalStore = {
     ...store,
@@ -94,6 +99,7 @@ export async function assignTenantToUnit(store: LocalStore, input: AssignTenantT
     tenantId,
     rent: input.monthlyRent,
     leaseStartDate: input.leaseStartDate,
+    financialTrackingStartDate: lease.financialTrackingStartDate,
     paymentStatus: input.paymentStatus,
     initialAmountPaid: input.initialAmountPaid,
     paymentReceivedDate: input.paymentReceivedDate,
@@ -141,10 +147,12 @@ export async function saveLeaseForUnit(store: LocalStore, input: SaveLeaseInput)
     monthlyRent: input.monthlyRent,
     leaseStartDate: input.leaseStartDate,
     leaseEndDate: input.leaseEndDate,
+    financialTrackingStartDate: input.financialTrackingStartDate,
     paymentStatus: input.paymentStatus,
     notes: input.notes,
     existingLeaseId: activeLease?.id,
     existingCreatedAt: activeLease?.createdAt,
+    status: activeLease ? "active" : isLeaseEndedByDate(input.leaseEndDate) ? "ended" : "active",
   });
 
   if (!activeLease && store.leases.some((lease) => lease.unitId === unit.id && lease.status === "active")) {
@@ -272,7 +280,13 @@ export function getCurrentUnitForTenant(tenantId: string, store: LocalStore) {
     return store.units.find((unit) => unit.id === activeLease.unitId) ?? null;
   }
 
-  return store.units.find((unit) => unit.tenantId === tenantId) ?? null;
+  const latestLease = store.leases
+    .filter((lease) => lease.tenantId === tenantId)
+    .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+
+  return latestLease
+    ? store.units.find((unit) => unit.id === latestLease.unitId) ?? null
+    : store.units.find((unit) => unit.tenantId === tenantId) ?? null;
 }
 
 export function isUnitAvailableForLease(store: LocalStore, unitId: string) {
@@ -301,6 +315,7 @@ function createLeaseRecord({
   existingCreatedAt,
   existingLeaseId,
   leaseEndDate,
+  financialTrackingStartDate,
   leaseStartDate,
   monthlyRent,
   notes,
@@ -308,10 +323,12 @@ function createLeaseRecord({
   propertyId,
   tenantId,
   unitId,
+  status,
 }: {
   existingCreatedAt?: string;
   existingLeaseId?: string;
   leaseEndDate: string;
+  financialTrackingStartDate?: string | null;
   leaseStartDate: string;
   monthlyRent: number;
   notes?: string;
@@ -319,6 +336,7 @@ function createLeaseRecord({
   propertyId: string;
   tenantId: string;
   unitId: string;
+  status?: Lease["status"];
 }): Lease {
   validateLeaseDateRange(leaseStartDate, leaseEndDate);
 
@@ -331,9 +349,10 @@ function createLeaseRecord({
     tenantId,
     startDate: leaseStartDate,
     endDate: leaseEndDate,
+    financialTrackingStartDate: financialTrackingStartDate === undefined ? leaseStartDate : financialTrackingStartDate,
     monthlyRent,
     paymentStatus: toRentPaymentStatus(paymentStatus),
-    status: "active",
+    status: status ?? "active",
     notes: notes?.trim() ?? "",
     createdAt: existingCreatedAt ?? now,
     updatedAt: now,

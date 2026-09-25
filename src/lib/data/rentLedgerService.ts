@@ -3,6 +3,7 @@ import { createActivityRecord } from "@/lib/data/activitiesService";
 import { getTodayIsoDate } from "@/lib/data/paymentSideEffectsService";
 import { createPayment, updatePayment } from "@/lib/data/paymentsService";
 import { computeRentChargeStatus } from "@/lib/data/rentStatus";
+import { generateRentSchedule } from "@/lib/data/rentSchedule";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type {
@@ -452,25 +453,7 @@ function toCompatibilityPayment(
 
 function generateRentCharges(leases: Lease[], today: string): RentCharge[] {
   return leases.flatMap((lease) => {
-    if (!lease.startDate || lease.status === "archived") {
-      return [];
-    }
-
-    const targetGenerationDate = addMonthsIsoDate(maxIsoDate(today, lease.startDate), 3);
-    const generationEndDate = lease.status === "ended"
-      ? lease.actualEndDate || lease.endDate
-      : minIsoDate(lease.endDate, targetGenerationDate);
-    const endMonth = generationEndDate.slice(0, 7);
-    const months = getMonthsBetween(lease.startDate.slice(0, 7), endMonth);
-
-    const charges = months.reduce<RentCharge[]>((items, periodMonth) => {
-        const dueDate = getDueDateForPeriod(lease.startDate, periodMonth);
-
-        if (lease.status === "ended" && lease.actualEndDate && dueDate > lease.actualEndDate) {
-          return items;
-        }
-
-        items.push({
+    return generateRentSchedule(lease, today).map(({ dueDate, periodMonth }) => ({
           id: getChargeId(lease.id, periodMonth),
           propertyId: lease.propertyId,
           unitId: lease.unitId,
@@ -481,12 +464,7 @@ function generateRentCharges(leases: Lease[], today: string): RentCharge[] {
           amountDue: lease.monthlyRent,
           createdAt: lease.createdAt,
           updatedAt: lease.updatedAt,
-        });
-
-        return items;
-      }, []);
-
-    return charges;
+        }));
   });
 }
 
@@ -698,49 +676,6 @@ function toRentCharge(charge: RentCharge): RentCharge {
     createdAt: charge.createdAt,
     updatedAt: charge.updatedAt,
   };
-}
-
-function getMonthsBetween(startMonth: string, endMonth: string) {
-  const [startYear, startMonthNumber] = startMonth.split("-").map(Number);
-  const [endYear, endMonthNumber] = endMonth.split("-").map(Number);
-  const months: string[] = [];
-  const cursor = new Date(startYear, startMonthNumber - 1, 1);
-  const end = new Date(endYear, endMonthNumber - 1, 1);
-
-  while (cursor <= end) {
-    months.push(`${cursor.getFullYear()}-${`${cursor.getMonth() + 1}`.padStart(2, "0")}`);
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-
-  return months;
-}
-
-function getDueDateForPeriod(leaseStartDate: string, periodMonth: string) {
-  if (periodMonth === leaseStartDate.slice(0, 7)) {
-    return leaseStartDate;
-  }
-
-  const day = Number(leaseStartDate.slice(8, 10));
-  const [year, month] = periodMonth.split("-").map(Number);
-  const lastDay = new Date(year, month, 0).getDate();
-
-  return `${periodMonth}-${`${Math.min(day, lastDay)}`.padStart(2, "0")}`;
-}
-
-function maxIsoDate(a: string, b: string) {
-  return a > b ? a : b;
-}
-
-function minIsoDate(a: string, b: string) {
-  return a < b ? a : b;
-}
-
-function addMonthsIsoDate(date: string, monthCount: number) {
-  const [year, month, day] = date.split("-").map(Number);
-  const nextDate = new Date(year, month - 1 + monthCount, 1);
-  const lastDay = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
-
-  return `${nextDate.getFullYear()}-${`${nextDate.getMonth() + 1}`.padStart(2, "0")}-${`${Math.min(day, lastDay)}`.padStart(2, "0")}`;
 }
 
 function compareChargeRows(a: RentChargeRow, b: RentChargeRow) {

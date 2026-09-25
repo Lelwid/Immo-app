@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:ledger": "node --experimental-strip-types --experimental-loader ./scripts/typescript-alias-loader.mjs --test scripts/historicalLeaseLedger.test.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.80",

@@ -3,9 +3,16 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
+import { FinancialTrackingFields } from "@/components/FinancialTrackingFields";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { createManualNormalizedAddress, type NormalizedAddress } from "@/lib/data/addressService";
 import { getDataMode, setDataMode } from "@/lib/data/dataMode";
+import {
+  getDefaultFinancialTrackingSelection,
+  isLeaseEndedByDate,
+  resolveFinancialTrackingStartDate,
+  type FinancialTrackingMode,
+} from "@/lib/data/financialTracking";
 import { createInitialPayment, getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import { clearPortfolioSnapshotCache, refreshSnapshot } from "@/lib/data/portfolioSnapshotService";
 import { resetDemoData, saveLocalStore } from "@/lib/local-storage";
@@ -45,6 +52,8 @@ type TenantSetup = {
   rent: number;
   leaseStartDate: string;
   leaseEndDate: string;
+  financialTrackingMode: FinancialTrackingMode;
+  financialTrackingCustomDate: string;
   paymentStatus: InitialPaymentStatus;
   initialAmountPaid: number;
   paymentReceivedDate: string;
@@ -522,9 +531,25 @@ function TenantsStep({ onChange, setups }: { onChange: (setups: TenantSetup[]) =
                 <TextInput label="Courriel" type="email" value={setup.email} onChange={(email) => update(index, { ...setup, email })} />
                 <TextInput label="Téléphone" type="tel" value={setup.phone} onChange={(phone) => update(index, { ...setup, phone })} />
                 <TextInput label="Loyer" min={0} type="number" value={setup.rent.toString()} onChange={(rent) => update(index, { ...setup, rent: Number(rent) })} />
-                <TextInput label="Début du bail" type="date" value={setup.leaseStartDate} onChange={(leaseStartDate) => update(index, { ...setup, leaseStartDate })} />
-                <TextInput label="Fin du bail" type="date" value={setup.leaseEndDate} onChange={(leaseEndDate) => update(index, { ...setup, leaseEndDate })} />
-                <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
+                <TextInput label="Début du bail" type="date" value={setup.leaseStartDate} onChange={(leaseStartDate) => update(index, updateTenantSetupLeaseDates(setup, leaseStartDate, setup.leaseEndDate))} />
+                <TextInput label="Fin du bail" type="date" value={setup.leaseEndDate} onChange={(leaseEndDate) => update(index, updateTenantSetupLeaseDates(setup, setup.leaseStartDate, leaseEndDate))} />
+                <FinancialTrackingFields
+                  customDate={setup.financialTrackingCustomDate}
+                  endDate={setup.leaseEndDate}
+                  mode={setup.financialTrackingMode}
+                  name={`onboarding-financial-tracking-${index}`}
+                  onChange={(selection) => update(index, {
+                    ...setup,
+                    financialTrackingMode: selection.mode,
+                    financialTrackingCustomDate: selection.customDate,
+                    paymentStatus: selection.mode === "historical_only" ? "dueSoon" : setup.paymentStatus,
+                    initialAmountPaid: selection.mode === "historical_only" ? 0 : setup.initialAmountPaid,
+                    paymentReceivedDate: selection.mode === "historical_only" ? "" : setup.paymentReceivedDate,
+                  })}
+                  startDate={setup.leaseStartDate}
+                  today={getTodayIsoDate()}
+                />
+                {setup.financialTrackingMode !== "historical_only" ? <label className="grid gap-1 text-sm font-medium text-[var(--muted)]">
                   Statut paiement
                   <select
                     className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]"
@@ -536,8 +561,8 @@ function TenantsStep({ onChange, setups }: { onChange: (setups: TenantSetup[]) =
                     <option value="dueSoon">Dû bientôt</option>
                     <option value="late">En retard</option>
                   </select>
-                </label>
-                {setup.paymentStatus === "partial" ? (
+                </label> : null}
+                {setup.financialTrackingMode !== "historical_only" && setup.paymentStatus === "partial" ? (
                   <TextInput
                     label="Montant reçu"
                     min={0}
@@ -546,7 +571,7 @@ function TenantsStep({ onChange, setups }: { onChange: (setups: TenantSetup[]) =
                     onChange={(initialAmountPaid) => update(index, { ...setup, initialAmountPaid: Number(initialAmountPaid) })}
                   />
                 ) : null}
-                {setup.paymentStatus === "paid" || setup.paymentStatus === "partial" ? (
+                {setup.financialTrackingMode !== "historical_only" && (setup.paymentStatus === "paid" || setup.paymentStatus === "partial") ? (
                   <TextInput
                     label="Date de réception du paiement"
                     type="date"
@@ -680,6 +705,7 @@ function OnboardingAddressSummary({ form }: { form: PropertyForm }) {
 
 function createTenantSetup(occupancy: TenantSetup["occupancy"]): TenantSetup {
   const { endDate, startDate } = getDefaultLeaseDates();
+  const tracking = getDefaultFinancialTrackingSelection(startDate, endDate, getTodayIsoDate());
 
   return {
     occupancy,
@@ -689,6 +715,8 @@ function createTenantSetup(occupancy: TenantSetup["occupancy"]): TenantSetup {
     rent: 0,
     leaseStartDate: startDate,
     leaseEndDate: endDate,
+    financialTrackingMode: tracking.mode,
+    financialTrackingCustomDate: tracking.customDate,
     paymentStatus: "dueSoon",
     initialAmountPaid: 0,
     paymentReceivedDate: "",
@@ -716,15 +744,48 @@ function isTenantSetupValid(setup: TenantSetup) {
     return true;
   }
 
+  let financialTrackingStartDate: string | null;
+
+  try {
+    financialTrackingStartDate = resolveTenantSetupFinancialTrackingDate(setup);
+  } catch {
+    return false;
+  }
+
   return Boolean(
     setup.tenantName.trim() &&
       setup.rent > 0 &&
       setup.leaseStartDate &&
       setup.leaseEndDate &&
       setup.leaseEndDate >= setup.leaseStartDate &&
-      (setup.paymentStatus !== "paid" && setup.paymentStatus !== "partial" || isPaymentReceivedDateValid(setup.paymentReceivedDate)) &&
-      (setup.paymentStatus !== "partial" || isPartialPaymentAmountValid(setup.initialAmountPaid, setup.rent)),
+      (financialTrackingStartDate === null || setup.paymentStatus !== "paid" && setup.paymentStatus !== "partial" || isPaymentReceivedDateValid(setup.paymentReceivedDate)) &&
+      (financialTrackingStartDate === null || setup.paymentStatus !== "partial" || isPartialPaymentAmountValid(setup.initialAmountPaid, setup.rent)),
   );
+}
+
+function updateTenantSetupLeaseDates(setup: TenantSetup, leaseStartDate: string, leaseEndDate: string): TenantSetup {
+  const tracking = getDefaultFinancialTrackingSelection(leaseStartDate, leaseEndDate, getTodayIsoDate());
+
+  return {
+    ...setup,
+    leaseStartDate,
+    leaseEndDate,
+    financialTrackingMode: tracking.mode,
+    financialTrackingCustomDate: tracking.customDate,
+    paymentStatus: tracking.mode === "historical_only" ? "dueSoon" : setup.paymentStatus,
+    initialAmountPaid: tracking.mode === "historical_only" ? 0 : setup.initialAmountPaid,
+    paymentReceivedDate: tracking.mode === "historical_only" ? "" : setup.paymentReceivedDate,
+  };
+}
+
+function resolveTenantSetupFinancialTrackingDate(setup: TenantSetup) {
+  return resolveFinancialTrackingStartDate({
+    mode: setup.financialTrackingMode,
+    customDate: setup.financialTrackingCustomDate,
+    startDate: setup.leaseStartDate,
+    endDate: setup.leaseEndDate,
+    today: getTodayIsoDate(),
+  });
 }
 
 function updateTenantSetupPaymentStatus(setup: TenantSetup, paymentStatus: InitialPaymentStatus): TenantSetup {
@@ -821,6 +882,7 @@ async function finishSupabaseOnboarding(propertyForm: PropertyForm, tenantSetups
             monthly_rent: setup.rent,
             lease_start_date: setup.leaseStartDate,
             lease_end_date: setup.leaseEndDate,
+            financial_tracking_start_date: resolveTenantSetupFinancialTrackingDate(setup),
             payment_status: setup.paymentStatus,
             initial_amount_paid: setup.initialAmountPaid,
             payment_received_date: setup.paymentReceivedDate,
@@ -978,24 +1040,29 @@ function createOnboardingStore(propertyForm: PropertyForm, tenantSetups: TenantS
       },
     ],
     documents: [],
-    payments: leases.map((lease) => {
+    payments: leases.flatMap((lease) => {
       const unitIndex = units.findIndex((unit) => unit.id === lease.unitId);
       const setup = tenantSetups[unitIndex];
 
-      return {
+      if (lease.financialTrackingStartDate === null) {
+        return [];
+      }
+
+      return [{
         ...createInitialPayment({
           propertyId,
           unitId: lease.unitId,
           leaseId: lease.id,
           tenantId: lease.tenantId,
           leaseStartDate: lease.startDate,
+          financialTrackingStartDate: lease.financialTrackingStartDate,
           rent: lease.monthlyRent,
           paymentStatus: setup?.paymentStatus ?? "dueSoon",
           initialAmountPaid: setup?.initialAmountPaid,
           paymentReceivedDate: setup?.paymentReceivedDate,
         }),
         notes: "Créé depuis l’assistant d’accueil.",
-      };
+      }];
     }),
     rentCharges: [],
     paymentTransactions: [],
@@ -1026,9 +1093,10 @@ function createOnboardingLeases(
       tenantId: tenant.id,
       startDate: setup.leaseStartDate,
       endDate: setup.leaseEndDate,
+      financialTrackingStartDate: resolveTenantSetupFinancialTrackingDate(setup),
       monthlyRent: setup.rent,
       paymentStatus: toRentPaymentStatus(setup.paymentStatus),
-      status: "active",
+      status: isLeaseEndedByDate(setup.leaseEndDate, getTodayIsoDate()) ? "ended" : "active",
       notes: setup.notes.trim(),
       createdAt: now,
       updatedAt: now,

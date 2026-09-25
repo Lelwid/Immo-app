@@ -2,15 +2,26 @@
 
 import { useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
+import { FinancialTrackingFields } from "@/components/FinancialTrackingFields";
 import { LeaseTerminationModal } from "@/components/LeaseTerminationModal";
 import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { getActiveLeaseForUnit, getUnitOccupancy } from "@/lib/data/leaseAdapters";
+import {
+  getDefaultFinancialTrackingSelection,
+  getFinancialTrackingSelectionForLease,
+  resolveFinancialTrackingStartDate,
+  type FinancialTrackingMode,
+} from "@/lib/data/financialTracking";
 import { endActiveLeaseForUnit, saveLeaseForUnit, type LeaseTerminationWorkflowInput } from "@/lib/data/leaseAssignmentService";
+import { getTodayIsoDate } from "@/lib/data/paymentSideEffectsService";
 import { currency, getPropertyDashboards, paymentStatusLabel, renewalStatusLabel } from "@/lib/mockData";
 import type { Lease, Unit } from "@/lib/types";
 import { useLocalStore } from "@/lib/useLocalStore";
 
-type LeaseForm = Pick<Unit, "tenantId" | "monthlyRent" | "leaseStartDate" | "leaseEndDate" | "paymentStatus" | "notes">;
+type LeaseForm = Pick<Unit, "tenantId" | "monthlyRent" | "leaseStartDate" | "leaseEndDate" | "paymentStatus" | "notes"> & {
+  financialTrackingMode: FinancialTrackingMode;
+  financialTrackingCustomDate: string;
+};
 
 export default function BauxPage() {
   const { setStore } = useLocalStore();
@@ -30,6 +41,8 @@ export default function BauxPage() {
     monthlyRent: 0,
     leaseStartDate: "",
     leaseEndDate: "",
+    financialTrackingMode: "lease_start",
+    financialTrackingCustomDate: "",
     paymentStatus: "paid",
     notes: "",
   });
@@ -45,13 +58,20 @@ export default function BauxPage() {
   function editLease(unit: Unit) {
     const occupancy = getUnitOccupancy(unit, snapshotStore.leases, snapshotStore.tenants);
     const activeLease = snapshotStore.leases.find((lease) => lease.unitId === unit.id && lease.status === "active");
+    const leaseStartDate = activeLease?.startDate ?? "";
+    const leaseEndDate = activeLease?.endDate ?? "";
+    const tracking = activeLease
+      ? getFinancialTrackingSelectionForLease(leaseStartDate, leaseEndDate, activeLease.financialTrackingStartDate, getTodayIsoDate())
+      : getDefaultFinancialTrackingSelection(leaseStartDate, leaseEndDate, getTodayIsoDate());
 
     setEditingUnitId(unit.id);
     setLeaseForm({
       tenantId: activeLease?.tenantId ?? null,
       monthlyRent: activeLease?.monthlyRent ?? unit.monthlyRent,
-      leaseStartDate: activeLease?.startDate ?? "",
-      leaseEndDate: activeLease?.endDate ?? "",
+      leaseStartDate,
+      leaseEndDate,
+      financialTrackingMode: tracking.mode,
+      financialTrackingCustomDate: tracking.customDate,
       paymentStatus: activeLease ? occupancy.paymentStatus : unit.paymentStatus,
       notes: activeLease?.notes ?? unit.notes,
     });
@@ -117,12 +137,21 @@ export default function BauxPage() {
     setLeaseSaveError("");
 
     try {
+      const financialTrackingStartDate = resolveFinancialTrackingStartDate({
+        mode: leaseForm.financialTrackingMode,
+        customDate: leaseForm.financialTrackingCustomDate,
+        startDate: leaseForm.leaseStartDate,
+        endDate: leaseForm.leaseEndDate,
+        today: getTodayIsoDate(),
+      });
+
       setStore(await saveLeaseForUnit(snapshotStore, {
         unitId: editingUnitId,
         tenantId: leaseForm.tenantId,
         monthlyRent: leaseForm.monthlyRent,
         leaseStartDate: leaseForm.leaseStartDate,
         leaseEndDate: leaseForm.leaseEndDate,
+        financialTrackingStartDate,
         paymentStatus: leaseForm.paymentStatus,
         notes: leaseForm.notes,
       }));
@@ -259,9 +288,23 @@ export default function BauxPage() {
                 options={[["", "Vacant"], ...snapshotStore.tenants.filter((tenant) => !tenant.archivedAt).map((tenant) => [tenant.id, `${tenant.firstName} ${tenant.lastName}`])]}
               />
               <TextInput label="Loyer" type="number" value={leaseForm.monthlyRent.toString()} onChange={(monthlyRent) => setLeaseForm({ ...leaseForm, monthlyRent: Number(monthlyRent) })} />
-              <TextInput label="Début du bail" type="date" value={leaseForm.leaseStartDate} onChange={(leaseStartDate) => setLeaseForm({ ...leaseForm, leaseStartDate })} />
-              <TextInput label="Fin du bail" type="date" value={leaseForm.leaseEndDate} onChange={(leaseEndDate) => setLeaseForm({ ...leaseForm, leaseEndDate })} />
-              <SelectInput
+              <TextInput label="Début du bail" type="date" value={leaseForm.leaseStartDate} onChange={(leaseStartDate) => setLeaseForm(updateLeaseFormDates(leaseForm, leaseStartDate, leaseForm.leaseEndDate))} />
+              <TextInput label="Fin du bail" type="date" value={leaseForm.leaseEndDate} onChange={(leaseEndDate) => setLeaseForm(updateLeaseFormDates(leaseForm, leaseForm.leaseStartDate, leaseEndDate))} />
+              <FinancialTrackingFields
+                customDate={leaseForm.financialTrackingCustomDate}
+                endDate={leaseForm.leaseEndDate}
+                mode={leaseForm.financialTrackingMode}
+                name="lease-financial-tracking"
+                onChange={(selection) => setLeaseForm({
+                  ...leaseForm,
+                  financialTrackingMode: selection.mode,
+                  financialTrackingCustomDate: selection.customDate,
+                  paymentStatus: selection.mode === "historical_only" ? "dueSoon" : leaseForm.paymentStatus,
+                })}
+                startDate={leaseForm.leaseStartDate}
+                today={getTodayIsoDate()}
+              />
+              {leaseForm.financialTrackingMode !== "historical_only" ? <SelectInput
                 label="Statut des paiements"
                 value={leaseForm.paymentStatus}
                 onChange={(paymentStatus) => setLeaseForm({ ...leaseForm, paymentStatus: paymentStatus as Unit["paymentStatus"] })}
@@ -270,7 +313,7 @@ export default function BauxPage() {
                   ["dueSoon", "Dû bientôt"],
                   ["late", "En retard"],
                 ]}
-              />
+              /> : null}
               <TextInput label="Notes" value={leaseForm.notes} onChange={(notes) => setLeaseForm({ ...leaseForm, notes })} />
               <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <button className="btn-secondary" onClick={cancelLeaseEdit} type="button">
@@ -297,6 +340,18 @@ export default function BauxPage() {
       </section>
     </RouteShell>
   );
+}
+
+function updateLeaseFormDates(form: LeaseForm, leaseStartDate: string, leaseEndDate: string): LeaseForm {
+  const tracking = getDefaultFinancialTrackingSelection(leaseStartDate, leaseEndDate, getTodayIsoDate());
+
+  return {
+    ...form,
+    leaseStartDate,
+    leaseEndDate,
+    financialTrackingMode: tracking.mode,
+    financialTrackingCustomDate: tracking.customDate,
+  };
 }
 
 function FormModal({

@@ -14,6 +14,7 @@ import {
   type TenantProfileInput,
 } from "@/lib/data/leaseWorkflows";
 import { createLease, endLease, getActiveLeaseByUnit, getLeases, updateLease } from "@/lib/data/leasesService";
+import { isLeaseEndedByDate } from "@/lib/data/financialTracking";
 import { archiveTenant, createTenant, updateTenant } from "@/lib/data/tenantsService";
 import { applyTenantNoteSideEffect } from "@/lib/data/notesSideEffectsService";
 import { applyInitialPaymentSideEffect } from "@/lib/data/paymentSideEffectsService";
@@ -53,9 +54,10 @@ export async function assignTenantToUnit(store: LocalStore, input: AssignTenantT
     tenantId: tenant.id,
     startDate: input.leaseStartDate,
     endDate: input.leaseEndDate,
+    financialTrackingStartDate: input.financialTrackingStartDate,
     monthlyRent: input.monthlyRent,
     paymentStatus: toRentPaymentStatus(input.paymentStatus),
-    status: "active",
+    status: isLeaseEndedByDate(input.leaseEndDate) ? "ended" : "active",
     notes: input.notes,
   });
 
@@ -67,6 +69,7 @@ export async function assignTenantToUnit(store: LocalStore, input: AssignTenantT
     tenantId: tenant.id,
     rent: input.monthlyRent,
     leaseStartDate: input.leaseStartDate,
+    financialTrackingStartDate: lease.financialTrackingStartDate,
     paymentStatus: input.paymentStatus,
     initialAmountPaid: input.initialAmountPaid,
     paymentReceivedDate: input.paymentReceivedDate,
@@ -146,9 +149,10 @@ export async function saveLeaseForUnit(store: LocalStore, input: SaveLeaseInput)
     tenantId: input.tenantId,
     startDate: input.leaseStartDate,
     endDate: input.leaseEndDate,
+    financialTrackingStartDate: input.financialTrackingStartDate,
     monthlyRent: input.monthlyRent,
     paymentStatus: toRentPaymentStatus(input.paymentStatus),
-    status: "active" as const,
+    status: activeLease ? "active" as const : isLeaseEndedByDate(input.leaseEndDate) ? "ended" as const : "active" as const,
     notes: input.notes,
   };
   const savedLease = activeLease ? await updateLease(activeLease.id, leaseInput) : await createLease(leaseInput);
@@ -250,7 +254,13 @@ export function getCurrentUnitForTenant(tenantId: string, store: LocalStore) {
     return store.units.find((unit) => unit.id === activeLease.unitId) ?? null;
   }
 
-  return store.units.find((unit) => unit.tenantId === tenantId) ?? null;
+  const latestLease = store.leases
+    .filter((lease) => lease.tenantId === tenantId)
+    .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+
+  return latestLease
+    ? store.units.find((unit) => unit.id === latestLease.unitId) ?? null
+    : store.units.find((unit) => unit.tenantId === tenantId) ?? null;
 }
 
 export function isUnitAvailableForLease(store: LocalStore, unitId: string) {

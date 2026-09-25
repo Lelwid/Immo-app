@@ -6,10 +6,11 @@ import type { ReactNode } from "react";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { RouteShell } from "@/app/components/route-shell";
 import { AppIcon, type IconName } from "@/components/AppIcon";
+import { FinancialTrackingFields } from "@/components/FinancialTrackingFields";
 import { NotesPanel } from "@/components/NotesPanel";
 import { TaskComposer } from "@/components/TaskComposer";
 import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
-import { getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
+import { getTenantOccupancy, getUnitOccupancy, type UnitOccupationView } from "@/lib/data/leaseAdapters";
 import {
   archiveTenantAndEndActiveLeases,
   assignTenantToUnit,
@@ -17,6 +18,11 @@ import {
   isUnitAvailableForLease,
   updateTenantProfile,
 } from "@/lib/data/leaseAssignmentService";
+import {
+  getDefaultFinancialTrackingSelection,
+  resolveFinancialTrackingStartDate,
+  type FinancialTrackingMode,
+} from "@/lib/data/financialTracking";
 import { getTodayIsoDate, type InitialPaymentStatus } from "@/lib/data/paymentSideEffectsService";
 import { buildRentLedger, type RentChargeRow } from "@/lib/data/rentLedgerService";
 import {
@@ -41,6 +47,8 @@ type NewTenantForm = {
   monthlyRent: string;
   leaseStartDate: string;
   leaseEndDate: string;
+  financialTrackingMode: FinancialTrackingMode;
+  financialTrackingCustomDate: string;
   paymentStatus: InitialPaymentStatus;
   initialAmountPaid: string;
   paymentReceivedDate: string;
@@ -128,6 +136,14 @@ function LocatairesContent() {
     setNewTenantError("");
 
     try {
+      const financialTrackingStartDate = resolveFinancialTrackingStartDate({
+        mode: newTenantForm.financialTrackingMode,
+        customDate: newTenantForm.financialTrackingCustomDate,
+        startDate: newTenantForm.leaseStartDate,
+        endDate: newTenantForm.leaseEndDate,
+        today: getTodayIsoDate(),
+      });
+
       const nextStore = await assignTenantToUnit(snapshotStore, {
         propertyId: newTenantForm.propertyId,
         unitId: newTenantForm.unitId,
@@ -137,6 +153,7 @@ function LocatairesContent() {
         monthlyRent: Number(newTenantForm.monthlyRent),
         leaseStartDate: newTenantForm.leaseStartDate,
         leaseEndDate: newTenantForm.leaseEndDate,
+        financialTrackingStartDate,
         paymentStatus: newTenantForm.paymentStatus,
         initialAmountPaid: Number(newTenantForm.initialAmountPaid),
         paymentReceivedDate: newTenantForm.paymentReceivedDate,
@@ -329,7 +346,7 @@ function TenantDrawer({
   tenant: Tenant;
 }) {
   const unit = getCurrentUnitForTenant(tenant.id, store);
-  const occupancy = unit ? getUnitOccupancy(unit, store.leases, store.tenants) : null;
+  const occupancy = getTenantOccupancy(tenant.id, store.units, store.leases, store.tenants);
   const payments = store.payments
     .filter((payment) => payment.tenantId === tenant.id || payment.unitId === unit?.id)
     .sort((a, b) => b.month.localeCompare(a.month));
@@ -756,9 +773,25 @@ function NewTenantModal({
               </option>
             ))}
           </SelectField>
-          <TextInput label="Date de début du bail" type="date" value={form.leaseStartDate} onChange={(leaseStartDate) => onChange({ ...form, leaseStartDate })} />
-          <TextInput label="Date de fin du bail" type="date" value={form.leaseEndDate} onChange={(leaseEndDate) => onChange({ ...form, leaseEndDate })} />
-          <SelectField
+          <TextInput label="Date de début du bail" type="date" value={form.leaseStartDate} onChange={(leaseStartDate) => onChange(updateNewTenantLeaseDates(form, leaseStartDate, form.leaseEndDate))} />
+          <TextInput label="Date de fin du bail" type="date" value={form.leaseEndDate} onChange={(leaseEndDate) => onChange(updateNewTenantLeaseDates(form, form.leaseStartDate, leaseEndDate))} />
+          <FinancialTrackingFields
+            customDate={form.financialTrackingCustomDate}
+            endDate={form.leaseEndDate}
+            mode={form.financialTrackingMode}
+            name="tenant-financial-tracking"
+            onChange={(selection) => onChange({
+              ...form,
+              financialTrackingMode: selection.mode,
+              financialTrackingCustomDate: selection.customDate,
+              paymentStatus: selection.mode === "historical_only" ? "dueSoon" : form.paymentStatus,
+              initialAmountPaid: selection.mode === "historical_only" ? "" : form.initialAmountPaid,
+              paymentReceivedDate: selection.mode === "historical_only" ? "" : form.paymentReceivedDate,
+            })}
+            startDate={form.leaseStartDate}
+            today={getTodayIsoDate()}
+          />
+          {form.financialTrackingMode !== "historical_only" ? <SelectField
             label="Statut paiement"
             value={form.paymentStatus}
             onChange={(paymentStatus) => onChange(updateNewTenantPaymentStatus(form, paymentStatus as InitialPaymentStatus))}
@@ -767,8 +800,8 @@ function NewTenantModal({
             <option value="partial">Partiel</option>
             <option value="dueSoon">Dû bientôt</option>
             <option value="late">En retard</option>
-          </SelectField>
-          {form.paymentStatus === "partial" ? (
+          </SelectField> : null}
+          {form.financialTrackingMode !== "historical_only" && form.paymentStatus === "partial" ? (
             <TextInput
               label="Montant reçu"
               type="number"
@@ -776,7 +809,7 @@ function NewTenantModal({
               onChange={(initialAmountPaid) => onChange({ ...form, initialAmountPaid })}
             />
           ) : null}
-          {form.paymentStatus === "paid" || form.paymentStatus === "partial" ? (
+          {form.financialTrackingMode !== "historical_only" && (form.paymentStatus === "paid" || form.paymentStatus === "partial") ? (
             <TextInput
               label="Date de réception du paiement"
               type="date"
@@ -993,6 +1026,12 @@ function createEmptyTenantForm(store: LocalStore): NewTenantForm {
     ? store.properties.find((property) => property.id === firstVacantUnit.propertyId)
     : store.properties[0];
 
+  const today = getTodayIsoDate();
+  const [year, month] = today.slice(0, 7).split("-").map(Number);
+  const leaseStartDate = `${today.slice(0, 7)}-01`;
+  const leaseEndDate = new Date(Date.UTC(year + 1, month - 1, 0)).toISOString().slice(0, 10);
+  const tracking = getDefaultFinancialTrackingSelection(leaseStartDate, leaseEndDate, today);
+
   return {
     fullName: "",
     email: "",
@@ -1000,8 +1039,10 @@ function createEmptyTenantForm(store: LocalStore): NewTenantForm {
     propertyId: firstProperty?.id ?? "",
     unitId: firstVacantUnit?.id ?? "",
     monthlyRent: firstVacantUnit?.monthlyRent ? firstVacantUnit.monthlyRent.toString() : "",
-    leaseStartDate: "2026-07-01",
-    leaseEndDate: "2027-06-30",
+    leaseStartDate,
+    leaseEndDate,
+    financialTrackingMode: tracking.mode,
+    financialTrackingCustomDate: tracking.customDate,
     paymentStatus: "dueSoon",
     initialAmountPaid: "",
     paymentReceivedDate: "",
@@ -1010,6 +1051,18 @@ function createEmptyTenantForm(store: LocalStore): NewTenantForm {
 }
 
 function isNewTenantFormValid(form: NewTenantForm) {
+  try {
+    resolveFinancialTrackingStartDate({
+      mode: form.financialTrackingMode,
+      customDate: form.financialTrackingCustomDate,
+      startDate: form.leaseStartDate,
+      endDate: form.leaseEndDate,
+      today: getTodayIsoDate(),
+    });
+  } catch {
+    return false;
+  }
+
   return Boolean(
     form.fullName.trim() &&
       form.propertyId &&
@@ -1017,9 +1070,24 @@ function isNewTenantFormValid(form: NewTenantForm) {
       Number(form.monthlyRent) > 0 &&
       form.leaseStartDate &&
       form.leaseEndDate &&
-      (form.paymentStatus !== "paid" && form.paymentStatus !== "partial" || isPaymentReceivedDateValid(form.paymentReceivedDate)) &&
-      (form.paymentStatus !== "partial" || isPartialPaymentAmountValid(form.initialAmountPaid, form.monthlyRent)),
+      (form.financialTrackingMode === "historical_only" || form.paymentStatus !== "paid" && form.paymentStatus !== "partial" || isPaymentReceivedDateValid(form.paymentReceivedDate)) &&
+      (form.financialTrackingMode === "historical_only" || form.paymentStatus !== "partial" || isPartialPaymentAmountValid(form.initialAmountPaid, form.monthlyRent)),
   );
+}
+
+function updateNewTenantLeaseDates(form: NewTenantForm, leaseStartDate: string, leaseEndDate: string): NewTenantForm {
+  const tracking = getDefaultFinancialTrackingSelection(leaseStartDate, leaseEndDate, getTodayIsoDate());
+
+  return {
+    ...form,
+    leaseStartDate,
+    leaseEndDate,
+    financialTrackingMode: tracking.mode,
+    financialTrackingCustomDate: tracking.customDate,
+    paymentStatus: tracking.mode === "historical_only" ? "dueSoon" : form.paymentStatus,
+    initialAmountPaid: tracking.mode === "historical_only" ? "" : form.initialAmountPaid,
+    paymentReceivedDate: tracking.mode === "historical_only" ? "" : form.paymentReceivedDate,
+  };
 }
 
 function updateNewTenantPaymentStatus(form: NewTenantForm, paymentStatus: InitialPaymentStatus): NewTenantForm {
@@ -1218,7 +1286,7 @@ function getTenantRows(store: LocalStore): TenantRow[] {
     .filter((tenant) => !tenant.archivedAt)
     .map((tenant) => {
       const unit = getCurrentUnitForTenant(tenant.id, store);
-      const occupancy = unit ? getUnitOccupancy(unit, store.leases, store.tenants) : null;
+      const occupancy = getTenantOccupancy(tenant.id, store.units, store.leases, store.tenants);
 
       return {
         tenant,

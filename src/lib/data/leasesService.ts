@@ -13,6 +13,7 @@ type SupabaseLeaseRow = {
   tenant_id: string;
   start_date: string;
   end_date: string;
+  financial_tracking_start_date?: string | null;
   actual_end_date?: string | null;
   monthly_rent: number | string;
   payment_status: string | null;
@@ -30,6 +31,7 @@ export type LeaseInput = {
   tenantId: string;
   startDate: string;
   endDate: string;
+  financialTrackingStartDate?: string | null;
   monthlyRent: number;
   paymentStatus?: RentPaymentStatus;
   status?: Lease["status"];
@@ -49,8 +51,9 @@ const deleteError = "Impossible de supprimer le bail.";
 const activeLeaseError = "Ce logement possède déjà un bail actif.";
 const baseSelectColumns = "id,property_id,unit_id,tenant_id,start_date,end_date,monthly_rent,payment_status,status,notes,created_at,updated_at";
 const selectColumns =
-  "id,property_id,unit_id,tenant_id,start_date,end_date,actual_end_date,monthly_rent,payment_status,status,notes,termination_reason,termination_notes,created_at,updated_at";
-const activeLeaseWriteSelectColumns = baseSelectColumns;
+  "id,property_id,unit_id,tenant_id,start_date,end_date,financial_tracking_start_date,actual_end_date,monthly_rent,payment_status,status,notes,termination_reason,termination_notes,created_at,updated_at";
+const activeLeaseWriteSelectColumns =
+  "id,property_id,unit_id,tenant_id,start_date,end_date,financial_tracking_start_date,monthly_rent,payment_status,status,notes,created_at,updated_at";
 
 export async function getLeases(): Promise<Lease[]> {
   if (canUseSupabase()) {
@@ -68,7 +71,7 @@ export async function getLeases(): Promise<Lease[]> {
     if (error) {
       await logSupabaseLeaseError(error, queryContext);
 
-      if (isMissingTerminationColumnError(error)) {
+      if (isMissingOptionalLeaseColumnError(error)) {
         return getLeasesWithBaseColumns(queryContext);
       }
 
@@ -102,7 +105,7 @@ export async function getLeasesByProperty(propertyId: string): Promise<Lease[]> 
     if (error) {
       await logSupabaseLeaseError(error, queryContext);
 
-      if (isMissingTerminationColumnError(error)) {
+      if (isMissingOptionalLeaseColumnError(error)) {
         return getLeasesByPropertyWithBaseColumns(propertyId, queryContext);
       }
 
@@ -137,7 +140,7 @@ export async function getActiveLeaseByUnit(unitId: string): Promise<Lease | null
     if (error) {
       await logSupabaseLeaseError(error, queryContext);
 
-      if (isMissingTerminationColumnError(error)) {
+      if (isMissingOptionalLeaseColumnError(error)) {
         return getActiveLeaseByUnitWithBaseColumns(unitId, queryContext);
       }
 
@@ -434,12 +437,15 @@ async function getAuthenticatedUserIdForDebug() {
   }
 }
 
-function isMissingTerminationColumnError(error: SupabaseErrorShape) {
+function isMissingOptionalLeaseColumnError(error: SupabaseErrorShape) {
   const text = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
 
   return (
     (error.code === "PGRST204" || error.code === "42703") &&
-    (text.includes("actual_end_date") || text.includes("termination_reason") || text.includes("termination_notes"))
+    (text.includes("actual_end_date") ||
+      text.includes("termination_reason") ||
+      text.includes("termination_notes") ||
+      text.includes("financial_tracking_start_date"))
   );
 }
 
@@ -462,6 +468,7 @@ function fromSupabaseRow(row: SupabaseLeaseRow): Lease {
     tenantId: row.tenant_id,
     startDate: row.start_date,
     endDate: row.end_date,
+    financialTrackingStartDate: row.financial_tracking_start_date === undefined ? row.start_date : row.financial_tracking_start_date,
     actualEndDate: row.actual_end_date ?? null,
     monthlyRent: Number(row.monthly_rent ?? 0),
     paymentStatus: normalizeRentPaymentStatus(row.payment_status),
@@ -481,6 +488,7 @@ function toSupabaseInsert(input: LeaseInput) {
     tenant_id: input.tenantId,
     start_date: input.startDate,
     end_date: input.endDate,
+    financial_tracking_start_date: input.financialTrackingStartDate === undefined ? input.startDate : input.financialTrackingStartDate,
     monthly_rent: input.monthlyRent,
     payment_status: input.paymentStatus ?? "à venir",
     status: input.status ?? "active",
@@ -490,6 +498,19 @@ function toSupabaseInsert(input: LeaseInput) {
 
 function normalizeLeaseInput(input: LeaseInput): Required<LeaseInput> {
   validateLeaseDateRange(input.startDate, input.endDate);
+  const financialTrackingStartDate = input.financialTrackingStartDate === undefined ? input.startDate : input.financialTrackingStartDate;
+  const status = input.status ?? "active";
+
+  if (status === "active" && financialTrackingStartDate === null) {
+    throw new Error("Un bail actif doit posséder une date de début du suivi financier.");
+  }
+
+  if (
+    financialTrackingStartDate !== null &&
+    (financialTrackingStartDate < input.startDate || financialTrackingStartDate > input.endDate)
+  ) {
+    throw new Error("La date de suivi financier doit être comprise dans les dates du bail.");
+  }
 
   return {
     propertyId: input.propertyId,
@@ -497,9 +518,10 @@ function normalizeLeaseInput(input: LeaseInput): Required<LeaseInput> {
     tenantId: input.tenantId,
     startDate: input.startDate,
     endDate: input.endDate,
+    financialTrackingStartDate,
     monthlyRent: Number(input.monthlyRent || 0),
     paymentStatus: input.paymentStatus ?? "à venir",
-    status: input.status ?? "active",
+    status,
     notes: input.notes ?? "",
   };
 }

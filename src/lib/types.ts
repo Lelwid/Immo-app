@@ -104,6 +104,7 @@ export type Lease = {
   tenantId: string;
   startDate: string;
   endDate: string;
+  financialTrackingStartDate?: string | null;
   actualEndDate?: string | null;
   monthlyRent: number;
   paymentStatus: RentPaymentStatus;

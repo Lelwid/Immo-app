@@ -116,7 +116,7 @@ export async function getTenantPortalSnapshot(): Promise<TenantPortalSnapshot> {
     maintenanceAttachments,
   ] = await Promise.all([
     selectRows("tenants", "id,user_id,full_name,email,phone,notes,archived_at,created_at,updated_at", (query) => query.in("id", tenantIds)).then((rows) => rows.map(mapTenant)),
-    selectRows("leases", "id,property_id,unit_id,tenant_id,start_date,end_date,actual_end_date,monthly_rent,payment_status,status,notes,termination_reason,termination_notes,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapLease)),
+    selectRows("leases", "id,property_id,unit_id,tenant_id,start_date,end_date,financial_tracking_start_date,actual_end_date,monthly_rent,payment_status,status,notes,termination_reason,termination_notes,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapLease)),
     selectRows("rent_charges", "id,property_id,unit_id,lease_id,tenant_id,period_month,due_date,amount_due,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapRentCharge)),
     selectRows("payment_transactions", "id,property_id,lease_id,tenant_id,cancelled_at,received_at,amount_received,method,reference,notes,created_at,updated_at", (query) => query.in("tenant_id", tenantIds)).then((rows) => rows.map(mapPaymentTransaction)),
     selectRows("documents", "id,user_id,property_id,unit_id,tenant_id,lease_id,title,document_type,file_name,file_url,storage_path,mime_type,size_bytes,related_entity_type,related_entity_id,notes,uploaded_at,created_at,updated_at,visibility").then((rows) => rows.map(mapDocument)),
@@ -588,6 +588,9 @@ function mapLease(row: Record<string, unknown>): Lease {
     actualEndDate: nullableString(row.actual_end_date),
     createdAt: optionalString(row.created_at),
     endDate: stringValue(row.end_date),
+    financialTrackingStartDate: row.financial_tracking_start_date === null
+      ? null
+      : stringValue(row.financial_tracking_start_date) || stringValue(row.start_date),
     id: stringValue(row.id),
     monthlyRent: numberValue(row.monthly_rent),
     notes: stringValue(row.notes),

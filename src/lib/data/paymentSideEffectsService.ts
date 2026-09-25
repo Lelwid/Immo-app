@@ -1,4 +1,5 @@
 import { createPayment, updatePayment } from "@/lib/data/paymentsService";
+import { getDueDateForPeriod } from "@/lib/data/rentSchedule";
 import type { LocalStore, PaymentRecord, PaymentStatus, RentPaymentStatus } from "@/lib/types";
 
 export type InitialPaymentStatus = PaymentStatus | "partial";
@@ -9,6 +10,7 @@ export type InitialPaymentInput = {
   leaseId?: string | null;
   tenantId: string;
   leaseStartDate: string;
+  financialTrackingStartDate?: string | null;
   rent: number;
   paymentStatus: InitialPaymentStatus;
   initialAmountPaid?: number;
@@ -16,6 +18,10 @@ export type InitialPaymentInput = {
 };
 
 export async function applyInitialPaymentSideEffect(store: LocalStore, input: InitialPaymentInput): Promise<LocalStore> {
+  if (input.financialTrackingStartDate === null) {
+    return store;
+  }
+
   return runPaymentSideEffect(store, async () => {
     const payment = createInitialPayment(input);
     const existingPayment = store.payments.find((candidate) =>
@@ -45,6 +51,7 @@ async function runPaymentSideEffect(store: LocalStore, effect: () => Promise<Loc
 
 export function createInitialPayment({
   leaseStartDate,
+  financialTrackingStartDate,
   leaseId,
   initialAmountPaid,
   paymentReceivedDate,
@@ -54,6 +61,12 @@ export function createInitialPayment({
   tenantId,
   unitId,
 }: InitialPaymentInput): PaymentRecord {
+  if (financialTrackingStartDate === null) {
+    throw new Error("Aucun paiement initial ne peut être créé pour un bail historique sans suivi financier.");
+  }
+
+  const trackingStartDate = financialTrackingStartDate ?? leaseStartDate;
+  const trackingPeriod = trackingStartDate.slice(0, 7);
   const rentPaymentStatus = toRentPaymentStatus(paymentStatus);
   const paidAt = resolveInitialPaymentReceivedDate(paymentStatus, paymentReceivedDate);
   const amountPaid = resolveInitialAmountPaid(paymentStatus, rent, initialAmountPaid);
@@ -64,8 +77,8 @@ export function createInitialPayment({
     unitId,
     leaseId: leaseId ?? null,
     tenantId,
-    month: leaseStartDate.slice(0, 7),
-    dueDate: leaseStartDate,
+    month: trackingPeriod,
+    dueDate: getDueDateForPeriod(leaseStartDate, trackingPeriod),
     amountDue: rent,
     amountPaid,
     status: rentPaymentStatus,

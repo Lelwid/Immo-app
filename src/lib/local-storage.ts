@@ -1029,6 +1029,7 @@ function normalizeLease(lease: Lease): Lease {
 
   return {
     ...lease,
+    financialTrackingStartDate: lease.financialTrackingStartDate === undefined ? lease.startDate : lease.financialTrackingStartDate,
     monthlyRent: Number(lease.monthlyRent || 0),
     paymentStatus: lease.paymentStatus || "à venir",
     status: lease.status || "active",
@@ -1081,6 +1082,7 @@ function deriveActiveLeasesFromUnits(units: Unit[]): Lease[] {
         tenantId: unit.tenantId as string,
         startDate: unit.leaseStartDate,
         endDate: unit.leaseEndDate,
+        financialTrackingStartDate: unit.leaseStartDate,
         monthlyRent: unit.monthlyRent,
         paymentStatus: toRentPaymentStatus(unit.paymentStatus),
         status: "active" as const,

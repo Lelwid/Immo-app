@@ -1081,6 +1081,9 @@ function mapLease(row: Record<string, unknown>): Lease {
     actualEndDate: nullableString(row.actual_end_date),
     createdAt: optionalMapString(row.created_at),
     endDate: stringValue(row.end_date),
+    financialTrackingStartDate: row.financial_tracking_start_date === null
+      ? null
+      : stringValue(row.financial_tracking_start_date) || stringValue(row.start_date),
     id: stringValue(row.id),
     monthlyRent: numberValue(row.monthly_rent),
     notes: stringValue(row.notes),
