@@ -53,6 +53,13 @@ type TenantSetup = {
 
 type OnboardingStatus = "idle" | "saving" | "verifying" | "completed" | "error";
 
+class OnboardingVerificationError extends Error {
+  constructor() {
+    super("portfolio_verification_failed");
+    this.name = "OnboardingVerificationError";
+  }
+}
+
 const steps = ["Bienvenue", "Immeuble", "Locataires", "Terminer"];
 
 const propertyTypeLabels: Record<PropertyType, string> = {
@@ -171,23 +178,12 @@ export default function OnboardingPage() {
 
       if (dataMode === "supabase") {
         setOnboardingTransition(runId, "saving");
-        await finishSupabaseOnboarding(propertyForm, tenantSetups, runId);
-        setOnboardingStatus("verifying");
-        setOnboardingTransition(runId, "verifying");
+        await createOrRecoverSupabasePortfolio(propertyForm, tenantSetups, runId, () => {
+          setOnboardingStatus("verifying");
+          setOnboardingTransition(runId, "verifying");
+        });
         clearPortfolioSnapshotCache();
         debugOnboarding(runId, "cache-cleared");
-
-        const verifiedSnapshot = await refreshSnapshot();
-        const propertyCount = verifiedSnapshot.properties.length;
-        debugOnboarding(runId, "forced-snapshot-loaded", { propertyCount });
-
-        if (propertyCount === 0) {
-          clearOnboardingTransition(runId, "empty-forced-snapshot");
-          setOnboardingStatus("error");
-          setSaveError("La configuration a été enregistrée, mais le portefeuille n’a pas pu être rechargé.");
-          return;
-        }
-
         setOnboardingStatus("completed");
         setOnboardingTransition(runId, "completed");
       } else {
@@ -204,7 +200,11 @@ export default function OnboardingPage() {
       console.error("Impossible de terminer l'accueil.", error);
       clearOnboardingTransition(runId, "completion-error");
       setOnboardingStatus("error");
-      setSaveError("Impossible de créer votre portefeuille. Réessayez dans quelques instants.");
+      setSaveError(
+        error instanceof OnboardingVerificationError
+          ? "Impossible de confirmer l’enregistrement de votre portefeuille. Réessayez la vérification dans quelques instants."
+          : "Impossible de créer votre portefeuille. Réessayez dans quelques instants.",
+      );
     } finally {
       if (!didRedirect) {
         completionInFlightRef.current = false;
@@ -823,6 +823,46 @@ async function finishSupabaseOnboarding(propertyForm: PropertyForm, tenantSetups
   }
 
   debugOnboarding(runId, "portfolio-created", data && typeof data === "object" ? data as Record<string, unknown> : undefined);
+}
+
+async function createOrRecoverSupabasePortfolio(
+  propertyForm: PropertyForm,
+  tenantSetups: TenantSetup[],
+  runId: string,
+  onVerifying: () => void,
+) {
+  try {
+    await finishSupabaseOnboarding(propertyForm, tenantSetups, runId);
+    return;
+  } catch (creationError) {
+    onVerifying();
+    debugOnboarding(runId, "creation-response-failed-verifying-persistence");
+
+    try {
+      if (await hasPersistedSupabasePortfolio()) {
+        debugOnboarding(runId, "existing-portfolio-confirmed");
+        return;
+      }
+    } catch {
+      throw new OnboardingVerificationError();
+    }
+
+    throw creationError;
+  }
+}
+
+async function hasPersistedSupabasePortfolio() {
+  if (!supabase) {
+    throw new OnboardingVerificationError();
+  }
+
+  const { data, error } = await supabase.from("properties").select("id").limit(1);
+
+  if (error || !data) {
+    throw new OnboardingVerificationError();
+  }
+
+  return data.length > 0;
 }
 
 function createSupabaseUnitPayloads(propertyType: PropertyType, unitCount: number) {

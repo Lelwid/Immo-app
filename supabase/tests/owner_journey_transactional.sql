@@ -69,6 +69,10 @@ begin
     raise exception 'Expected two units, got %', result->>'unit_count';
   end if;
 
+  if coalesce((result->>'already_initialized')::boolean, true) then
+    raise exception 'First onboarding call was incorrectly marked as a replay';
+  end if;
+
   insert into owner_journey_results values ('Atomic portfolio creation', 'ok');
 end;
 $$;
@@ -96,7 +100,7 @@ where l.property_id = f.property_id and l.unit_id = f.unit_id and l.tenant_id = 
 do $$
 declare
   f owner_journey_fixture;
-  duplicate_rejected boolean := false;
+  replay_result jsonb;
 begin
   select * into f from owner_journey_fixture;
 
@@ -123,21 +127,25 @@ begin
   insert into owner_journey_results values ('Property and exact two units', 'ok');
   insert into owner_journey_results values ('Tenant and lease relations', 'ok');
 
-  begin
-    perform public.create_owner_portfolio(
-      '{"name":"Duplicate","address":"Duplicate","type":"duplex"}'::jsonb,
-      '[{"name":"Logement 1","floor":"1","floor_index":1,"sort_order":1}]'::jsonb,
-      '[]'::jsonb
-    );
-  exception when raise_exception then
-    duplicate_rejected := true;
-  end;
+  select public.create_owner_portfolio(
+    '{"name":"Duplicate","address":"Duplicate","type":"duplex"}'::jsonb,
+    '[{"name":"Logement 1","floor":"1","floor_index":1,"sort_order":1}]'::jsonb,
+    '[]'::jsonb
+  ) into replay_result;
 
-  if not duplicate_rejected then
-    raise exception 'Duplicate onboarding was accepted';
+  if not coalesce((replay_result->>'already_initialized')::boolean, false)
+     or replay_result->>'property_id' <> f.property_id::text then
+    raise exception 'Onboarding replay did not return the existing portfolio';
   end if;
 
-  insert into owner_journey_results values ('Duplicate onboarding rejected', 'ok');
+  if (select count(*) from public.properties where user_id = f.owner_id) <> 1
+     or (select count(*) from public.units where property_id = f.property_id) <> 2
+     or (select count(*) from public.tenants where user_id = f.owner_id) <> 1
+     or (select count(*) from public.leases where property_id = f.property_id) <> 1 then
+    raise exception 'Onboarding replay created duplicate rows';
+  end if;
+
+  insert into owner_journey_results values ('Onboarding replay is idempotent', 'ok');
 end;
 $$;
 

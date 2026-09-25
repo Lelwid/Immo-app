@@ -60,9 +60,8 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     configured &&
     Boolean(user) &&
     dataMode === "supabase" &&
-    !isOnboarding &&
     !isTenantPortal &&
-    (isProtected || isSignInRoute);
+    (isProtected || isSignInRoute || isOnboarding);
   const {
     data,
     error: portfolioError,

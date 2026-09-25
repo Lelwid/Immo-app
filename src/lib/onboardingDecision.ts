@@ -43,7 +43,7 @@ export function shouldRequireOnboarding(input: OnboardingDecisionInput): Onboard
 }
 
 function getSupabaseOnboardingDecision(input: OnboardingDecisionInput): OnboardingDecision {
-  if (!input.isProtectedRoute && !input.isSignInRoute) {
+  if (!input.isProtectedRoute && !input.isSignInRoute && !input.isOnboardingRoute) {
     return { status: "allow", reason: "supabase-public-route" };
   }
 
@@ -69,6 +69,10 @@ function getSupabaseOnboardingDecision(input: OnboardingDecisionInput): Onboardi
 
   if (input.isSignInRoute) {
     return { status: "redirect", reason: "supabase-authenticated-with-portfolio", to: "/dashboard" };
+  }
+
+  if (input.isOnboardingRoute) {
+    return { status: "redirect", reason: "supabase-onboarding-already-complete", to: "/dashboard" };
   }
 
   return { status: "allow", reason: "supabase-portfolio-ready" };
