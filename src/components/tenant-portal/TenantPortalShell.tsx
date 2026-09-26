@@ -31,8 +31,8 @@ export function TenantPortalShell({ children }: TenantPortalShellProps) {
   const { signOut, user } = useAuth();
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_34%),var(--background)] pb-24 text-[var(--foreground)] md:pb-0">
-      <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col md:grid md:grid-cols-[220px_minmax(0,1fr)]">
+    <main className="min-h-dvh bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_34%),var(--background)] pb-[calc(6rem+env(safe-area-inset-bottom))] text-[var(--foreground)] md:pb-0">
+      <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col md:grid md:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden border-r border-[var(--border)]/70 bg-[#07101f]/95 px-4 py-5 md:flex md:flex-col">
           <TenantPortalBrand />
           <nav className="mt-8 grid gap-1">

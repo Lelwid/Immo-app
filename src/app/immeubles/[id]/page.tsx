@@ -722,8 +722,8 @@ function UnitTenantModal({
   const canSave = isUnitTenantFormValid(form);
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-[var(--muted)]">Logement vacant</p>
@@ -897,7 +897,7 @@ function DrawerFrame({ children, onClose, subtitle, title }: { children: React.R
   return (
     <div className="fixed inset-0 z-50">
       <button className="absolute inset-0 bg-black/55" aria-label="Fermer le panneau" onClick={onClose} type="button" />
-      <aside className="custom-scrollbar absolute right-0 top-0 h-full w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px]">
+      <aside className="custom-scrollbar absolute right-0 top-0 h-dvh w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px] sm:p-5">
         <div className="mb-6 flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm font-medium text-[var(--muted)]">{subtitle}</p>

@@ -99,8 +99,8 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-8 text-[var(--foreground)]">
-      <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+    <main className="flex min-h-dvh items-center justify-center bg-[var(--background)] px-3 py-[max(1rem,env(safe-area-inset-top))] text-[var(--foreground)] sm:px-4 sm:py-8">
+      <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
         <div className="mb-6">
           <p className="text-sm font-medium text-[var(--muted)]">Nexbail</p>
           <h1 className="mt-1 text-3xl font-semibold">

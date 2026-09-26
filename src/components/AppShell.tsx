@@ -95,9 +95,9 @@ export function AppShell({ children }: AppShellProps) {
   }, [pathname]);
 
   return (
-    <main className="min-h-screen overflow-x-hidden bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.12),transparent_32%),var(--background)] text-[var(--foreground)]">
+    <main className="min-h-dvh bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.12),transparent_32%),var(--background)] text-[var(--foreground)]">
       <div
-        className="grid min-h-screen transition-[grid-template-columns] duration-200 ease-out lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] lg:gap-x-[var(--shell-gap)]"
+        className="grid min-h-dvh transition-[grid-template-columns] duration-200 ease-out lg:grid-cols-[var(--sidebar-width)_minmax(0,1fr)] lg:gap-x-[var(--shell-gap)]"
         style={
           {
             "--sidebar-width": sidebarCollapsed ? sidebarCollapsedWidth : sidebarWidth,
@@ -109,9 +109,9 @@ export function AppShell({ children }: AppShellProps) {
         <AppSidebar collapsed={sidebarCollapsed} onToggleCollapsed={toggleSidebar} pathname={pathname} />
         <div className="min-w-0">
           <AppHeader compact />
-          <div key={pathname} className="page-route-transition mx-auto w-full max-w-[1390px] px-4 py-4 sm:px-6 lg:px-8">{children}</div>
+          <div key={pathname} className="page-route-transition mx-auto min-w-0 w-full max-w-[1390px] px-4 pb-24 pt-4 sm:px-6 sm:pb-6 lg:px-8">{children}</div>
+          <HabixaCopilot />
         </div>
-        <HabixaCopilot />
       </div>
     </main>
   );

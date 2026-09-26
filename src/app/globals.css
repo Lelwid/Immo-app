@@ -108,7 +108,7 @@ button {
 
 @media (prefers-reduced-motion: no-preference) {
   .page-route-transition {
-    animation: habixa-page-enter 150ms ease-out both;
+    animation: habixa-page-enter 150ms ease-out;
   }
 
   @keyframes habixa-page-enter {

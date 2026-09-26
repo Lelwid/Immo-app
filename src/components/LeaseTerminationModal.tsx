@@ -44,8 +44,8 @@ export function LeaseTerminationModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-[var(--muted)]">Gestion du bail</p>

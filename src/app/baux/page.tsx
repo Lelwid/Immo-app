@@ -194,9 +194,51 @@ export default function BauxPage() {
 
         {data ? <div className="grid gap-5">
           {properties.map((property) => (
-            <article key={property.id} className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
-              <h2 className="text-xl font-semibold text-[var(--foreground)]">{property.name}</h2>
-              <div className="custom-scrollbar mt-4 overflow-x-auto rounded-lg border border-[var(--border)]">
+            <article key={property.id} className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
+              <h2 className="break-words text-xl font-semibold text-[var(--foreground)]">{property.name}</h2>
+              <div className="mt-4 grid gap-3 sm:hidden">
+                {property.units.map((unit) => {
+                  const occupancy = getUnitOccupancy(unit, snapshotStore.leases, snapshotStore.tenants);
+                  const activeLease = getActiveLeaseForUnit(unit.id, snapshotStore.leases);
+                  const isFutureLease = occupancy.source === "future";
+                  const hasLeaseDetails = occupancy.source === "lease" || isFutureLease;
+
+                  return (
+                    <section key={unit.id} className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4">
+                      <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="break-words font-semibold text-[var(--foreground)]">
+                            {isFutureLease ? `${occupancy.tenantName} · À venir` : occupancy.tenantName}
+                          </h3>
+                          <p className="mt-1 break-words text-sm text-[var(--muted)]">{occupancy.unitName}</p>
+                        </div>
+                        {hasLeaseDetails ? <span className="shrink-0 rounded-full border border-[var(--border)] px-2 py-1 text-xs font-semibold text-[var(--muted)]">{isFutureLease ? "À venir" : paymentStatusLabel[occupancy.paymentStatus]}</span> : null}
+                      </div>
+                      <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                        <dt className="text-[var(--muted)]">Début du bail</dt>
+                        <dd className="text-right text-[var(--foreground)]">{hasLeaseDetails ? occupancy.leaseStartDate : "—"}</dd>
+                        <dt className="text-[var(--muted)]">Fin du bail</dt>
+                        <dd className="text-right text-[var(--foreground)]">{hasLeaseDetails ? occupancy.leaseEndDate : "—"}</dd>
+                        <dt className="text-[var(--muted)]">Loyer</dt>
+                        <dd className="text-right text-[var(--foreground)]">{hasLeaseDetails ? currency.format(occupancy.monthlyRent) : "—"}</dd>
+                        <dt className="text-[var(--muted)]">Renouvellement</dt>
+                        <dd className="text-right text-[var(--foreground)]">{isFutureLease ? "À venir" : hasLeaseDetails ? renewalStatusLabel[occupancy.paymentStatus] : "—"}</dd>
+                      </dl>
+                      <div className="mt-4 flex flex-wrap gap-4 border-t border-[var(--border)] pt-3">
+                        <button className="text-left text-sm font-semibold text-[color:var(--accent)]" onClick={() => editLease(unit)} type="button">
+                          Modifier
+                        </button>
+                        {activeLease ? (
+                          <button className="text-left text-sm font-semibold text-[color:var(--red)]" onClick={() => openLeaseTermination(unit)} type="button">
+                            Terminer le bail
+                          </button>
+                        ) : null}
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+              <div className="custom-scrollbar mt-4 hidden overflow-x-auto rounded-lg border border-[var(--border)] sm:block">
                 <div className="min-w-[980px]">
                   <div className="grid grid-cols-[1.2fr_0.8fr_1fr_1fr_0.8fr_1fr_1fr_0.8fr] gap-3 bg-[var(--surface-2)] px-4 py-3 text-xs font-semibold uppercase text-[var(--muted)]">
                     <span>Locataire</span>
@@ -364,8 +406,8 @@ function FormModal({
   title: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-[var(--muted)]">Gestion des baux</p>

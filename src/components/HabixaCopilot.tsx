@@ -97,7 +97,7 @@ export function HabixaCopilot() {
     <>
       <button
         aria-label="Ouvrir Nexbail Copilot"
-        className="fixed bottom-5 right-5 z-50 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[color:var(--accent)]/45 bg-[color:var(--accent)] text-white shadow-[0_18px_44px_rgba(37,99,235,0.42)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_54px_rgba(37,99,235,0.5)]"
+        className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-40 inline-flex h-14 w-14 items-center justify-center rounded-2xl border border-[color:var(--accent)]/45 bg-[color:var(--accent)] text-white shadow-[0_18px_44px_rgba(37,99,235,0.42)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_54px_rgba(37,99,235,0.5)] sm:bottom-5 sm:right-5"
         onClick={() => setOpen(true)}
         type="button"
       >
@@ -105,7 +105,7 @@ export function HabixaCopilot() {
       </button>
 
       {open ? (
-        <section className="fixed bottom-5 right-5 z-[70] flex max-h-[min(720px,calc(100vh-2.5rem))] w-[min(430px,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[#081120] shadow-[0_24px_80px_rgba(0,0,0,0.42)]">
+        <section className="fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] top-2 z-[70] flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[#081120] shadow-[0_24px_80px_rgba(0,0,0,0.42)] sm:inset-auto sm:bottom-5 sm:right-5 sm:max-h-[min(720px,calc(100dvh-2.5rem))] sm:w-[min(430px,calc(100vw-2rem))]">
           <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/18 text-[color:var(--accent)]">
@@ -130,7 +130,7 @@ export function HabixaCopilot() {
             {messages.map((message) => (
               <div key={message.id} className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
-                  className={`max-w-[86%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                  className={`min-w-0 max-w-[86%] break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     message.role === "user"
                       ? "bg-[color:var(--accent)] text-white"
                       : "border border-[var(--border)] bg-white/[0.04] text-[var(--foreground)]"

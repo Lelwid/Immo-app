@@ -74,7 +74,7 @@ export function TenantPortalPageHeader({ children, description, title }: { child
     <div className="grid gap-5">
       <header>
         <p className="text-sm font-semibold text-[color:var(--accent)]">Portail locataire</p>
-        <h1 className="mt-1 text-3xl font-bold tracking-normal text-[var(--foreground)]">{title}</h1>
+        <h1 className="mt-1 break-words text-3xl font-bold tracking-normal text-[var(--foreground)]">{title}</h1>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-[var(--muted)]">{description}</p>
       </header>
       {children}
@@ -83,14 +83,14 @@ export function TenantPortalPageHeader({ children, description, title }: { child
 }
 
 export function TenantCard({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <section className={`rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5 ${className}`}>{children}</section>;
+  return <section className={`min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5 ${className}`}>{children}</section>;
 }
 
 export function TenantInfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] py-3 last:border-b-0">
-      <span className="text-sm text-[var(--muted)]">{label}</span>
-      <span className="text-right text-sm font-semibold text-[var(--foreground)]">{value}</span>
+    <div className="flex min-w-0 items-start justify-between gap-4 border-b border-[var(--border)] py-3 last:border-b-0">
+      <span className="shrink-0 text-sm text-[var(--muted)]">{label}</span>
+      <span className="min-w-0 break-words text-right text-sm font-semibold text-[var(--foreground)]">{value}</span>
     </div>
   );
 }

@@ -224,7 +224,7 @@ function LocatairesContent() {
           <Metric label="Logements vacants" value={summary.vacantUnits.toString()} />
         </div>
 
-        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <section className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-[var(--foreground)]">Répertoire des locataires</h2>
@@ -235,7 +235,41 @@ function LocatairesContent() {
             </button>
           </div>
 
-          <div className="custom-scrollbar overflow-x-auto rounded-lg border border-[var(--border)]">
+          <div className="grid gap-3 sm:hidden">
+            {rows.map((row) => (
+              <button
+                key={row.tenant.id}
+                aria-label={`Ouvrir le locataire: ${row.tenant.firstName} ${row.tenant.lastName}`}
+                className="min-w-0 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-4 text-left transition hover:border-[color:var(--accent)]/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--accent)]"
+                onClick={() => openTenant(row.tenant)}
+                type="button"
+              >
+                <span className="flex min-w-0 items-start justify-between gap-3">
+                  <span className="min-w-0 break-words text-base font-semibold text-[var(--foreground)]">
+                    {row.tenant.firstName} {row.tenant.lastName}
+                  </span>
+                  <span className="shrink-0 text-[color:var(--accent)]" aria-hidden="true">→</span>
+                </span>
+                <span className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+                  <span className="text-[var(--muted)]">Immeuble</span>
+                  <span className="min-w-0 break-words text-right text-[var(--foreground)]">{row.propertyName}</span>
+                  <span className="text-[var(--muted)]">Logement</span>
+                  <span className="min-w-0 break-words text-right text-[var(--foreground)]">{row.occupancy?.unitName ?? "Non assigné"}</span>
+                  <span className="text-[var(--muted)]">Loyer</span>
+                  <span className="text-right text-[var(--foreground)]">{row.occupancy ? currency.format(row.occupancy.monthlyRent) : "—"}</span>
+                  <span className="text-[var(--muted)]">Paiement</span>
+                  <span className="flex justify-end"><TenantRentStatusBadge summary={row.rentStatus} /></span>
+                  <span className="text-[var(--muted)]">Fin du bail</span>
+                  <span className="text-right text-[var(--foreground)]">{row.occupancy?.leaseEndDate ?? "—"}</span>
+                </span>
+                <span className="mt-3 block min-w-0 break-all border-t border-[var(--border)] pt-3 text-sm text-[var(--muted)]">
+                  {row.tenant.phone}<br />{row.tenant.email}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="custom-scrollbar hidden overflow-x-auto rounded-lg border border-[var(--border)] sm:block">
             <div className="min-w-[1180px]">
               <div className="grid grid-cols-[1.2fr_1.1fr_0.8fr_0.7fr_0.8fr_0.8fr_1.2fr] gap-3 bg-[var(--surface-2)] px-4 py-3 text-xs font-semibold uppercase text-[var(--muted)]">
                 <span>Nom</span>
@@ -359,11 +393,11 @@ function TenantDrawer({
   return (
     <div className="fixed inset-0 z-50">
       <button className="absolute inset-0 bg-black/55" aria-label="Fermer le panneau" onClick={onClose} type="button" />
-      <aside className="custom-scrollbar absolute right-0 top-0 h-full w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px]">
+      <aside className="custom-scrollbar absolute right-0 top-0 h-dvh w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px] sm:p-5">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <p className="text-sm font-medium text-[var(--muted)]">Dossier locataire</p>
-            <h2 className="mt-1 text-2xl font-semibold text-[var(--foreground)]">
+            <h2 className="mt-1 break-words text-2xl font-semibold text-[var(--foreground)]">
               {tenant.firstName} {tenant.lastName}
             </h2>
             <p className="mt-1 text-sm text-[var(--muted)]">
@@ -731,8 +765,8 @@ function NewTenantModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-[var(--muted)]">Locataires</p>
@@ -866,8 +900,8 @@ function TenantFormModal({
   });
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <h2 className="text-2xl font-semibold">Modifier le locataire</h2>
         <div className="mt-5 grid gap-3">
           <TextInput label="Prénom" value={form.firstName} onChange={(firstName) => setForm({ ...form, firstName })} />
@@ -904,8 +938,8 @@ function ConfirmModal({
   title: string;
 }) {
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4">
+      <div className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
         <h2 className="text-xl font-semibold text-[var(--foreground)]">{title}</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{message}</p>
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

@@ -317,8 +317,8 @@ function TaskEditModal({
   const availableUnits = store.units.filter((unit) => !form.propertyId || unit.propertyId === form.propertyId);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <h2 className="text-2xl font-semibold">Modifier la tâche personnelle</h2>
         <div className="mt-5 grid gap-3">
           <TextInput label="Titre" value={form.title} onChange={(title) => setForm({ ...form, title })} />
@@ -383,8 +383,8 @@ function ConfirmModal({
   title: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4">
+      <div className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
         <h2 className="text-xl font-semibold text-[var(--foreground)]">{title}</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">{message}</p>
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

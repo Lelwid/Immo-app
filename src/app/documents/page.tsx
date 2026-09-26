@@ -850,7 +850,7 @@ function DocumentDrawer({
     <div className="fixed inset-x-0 bottom-0 top-12 z-50">
       <button className="absolute inset-0 bg-black/55" aria-label="Fermer le panneau" type="button" onClick={onClose} />
       <aside
-        className="absolute bottom-0 right-0 top-0 flex w-full max-w-[480px] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px]"
+        className="absolute bottom-0 right-0 top-0 flex h-dvh w-full max-w-[480px] flex-col overflow-hidden border-l border-[var(--border)] bg-[var(--surface)] shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px]"
         role="dialog"
         aria-modal="true"
         aria-label={`Détails du document ${document.name}`}
@@ -1094,7 +1094,7 @@ function DocumentPreview({ document }: { document: PropertyDocument }) {
   if (!hasDocumentFile(document)) {
     return (
       <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5 text-center">
-        <p className="font-semibold text-[var(--foreground)]">{document.name}</p>
+        <p className="break-all font-semibold text-[var(--foreground)]">{document.name}</p>
         <p className="mt-2 text-sm text-[var(--muted)]">Aucun fichier téléversé.</p>
       </div>
     );
@@ -1117,7 +1117,7 @@ function DocumentPreview({ document }: { document: PropertyDocument }) {
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-xl border border-[color:var(--red)]/30 bg-[color:var(--red)]/10 text-xl font-bold text-[color:var(--red)]">
           PDF
         </div>
-        <p className="mt-4 font-semibold text-[var(--foreground)]">{document.name}</p>
+        <p className="mt-4 break-all font-semibold text-[var(--foreground)]">{document.name}</p>
         <p className="mt-1 text-sm text-[var(--muted)]">Aperçu PDF non intégré pour ce MVP.</p>
       </div>
     );
@@ -1125,7 +1125,7 @@ function DocumentPreview({ document }: { document: PropertyDocument }) {
 
   return (
     <div className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-5">
-      <p className="font-semibold text-[var(--foreground)]">{document.name}</p>
+      <p className="break-all font-semibold text-[var(--foreground)]">{document.name}</p>
       <p className="mt-2 text-sm text-[var(--muted)]">
         Type: {document.mimeType || documentTypeLabel[document.type]}
       </p>
@@ -1174,15 +1174,15 @@ function InfoCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3">
       <p className="text-xs font-medium uppercase text-[var(--muted)]">{label}</p>
-      <p className="mt-1 font-semibold text-[var(--foreground)]">{value}</p>
+      <p className="mt-1 break-words font-semibold text-[var(--foreground)]">{value}</p>
     </div>
   );
 }
 
 function ConfirmDeleteModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="w-full max-w-lg rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="max-h-[calc(100dvh-1rem)] w-full max-w-lg overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:p-6">
         <h2 className="text-2xl font-semibold">Supprimer le document ?</h2>
         <p className="mt-3 text-sm leading-6 text-[var(--muted)]">Voulez-vous vraiment supprimer ce document ?</p>
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -1247,9 +1247,9 @@ function LeaseExtractionValidationModal({
   }
 
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6" onMouseDown={saving ? undefined : onCancel}>
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6" onMouseDown={saving ? undefined : onCancel}>
       <div
-        className="custom-scrollbar max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]"
+        className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -1716,8 +1716,8 @@ function FormModal({
   title: string;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="custom-scrollbar max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-[var(--foreground)]">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-2 sm:items-center sm:px-4 sm:py-6">
+      <div className="custom-scrollbar max-h-[calc(100dvh-1rem)] w-full max-w-xl overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-[var(--foreground)] sm:max-h-[90dvh] sm:p-6">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-semibold uppercase text-[var(--muted)]">Documents</p>

@@ -346,7 +346,7 @@ function EventDrawer({ event, onClose }: { event: OperationalEvent; onClose: () 
   return (
     <div className="fixed inset-0 z-50">
       <button className="absolute inset-0 bg-black/55" aria-label="Fermer le panneau" onClick={onClose} type="button" />
-      <aside className="custom-scrollbar absolute right-0 top-0 h-full w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-5 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px]">
+      <aside className="custom-scrollbar absolute right-0 top-0 h-dvh w-full max-w-[480px] overflow-y-auto border-l border-[var(--border)] bg-[var(--surface)] p-4 shadow-[-24px_0_60px_rgba(0,0,0,0.32)] sm:w-[460px] sm:p-5">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-[var(--muted)]">{event.typeLabel}</p>

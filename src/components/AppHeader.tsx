@@ -255,7 +255,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
   return (
     <nav
       ref={headerRef}
-      className="relative flex min-h-12 w-full min-w-0 items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 sm:px-4"
+      className="relative flex min-h-14 w-full min-w-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 sm:min-h-12 sm:gap-3 sm:px-4"
     >
       {!compact ? (
         <Link href="/dashboard" className="flex shrink-0 items-center gap-3">
@@ -296,7 +296,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
       </div>
       ) : null}
 
-      <div className={`${compact ? "" : "ml-auto"} flex min-w-0 flex-1 items-center justify-end gap-2`}>
+      <div className={`${compact ? "" : "ml-auto"} flex min-w-0 flex-1 items-center justify-end gap-1.5 sm:gap-2`}>
         <button
           type="button"
           aria-expanded={mobileMenuOpen}
@@ -308,7 +308,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
             setSettingsOpen(false);
             setSearchOpen(false);
           }}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] xl:hidden"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8 xl:hidden"
         >
           <MenuIcon />
         </button>
@@ -323,7 +323,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
             setMobileMenuOpen(false);
             void refreshPortfolioSnapshot();
           }}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] md:hidden"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8 md:hidden"
         >
           <SearchIcon />
         </button>
@@ -358,7 +358,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
               setMobileMenuOpen(false);
               setSettingsOpen(false);
             }}
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
+            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8"
           >
             <BellIcon />
             {notifications.length > 0 ? (
@@ -395,7 +395,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
           aria-label={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
           title={theme === "dark" ? "Clair" : "Sombre"}
           onClick={toggleTheme}
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8"
         >
           <ThemeIcon theme={theme} />
         </button>
@@ -410,7 +410,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
               setActiveDropdown(null);
               setMobileMenuOpen(false);
             }}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8"
           >
             {user ? (
               <span className="text-xs font-bold text-[var(--foreground)]">{getUserInitial(user.email)}</span>
@@ -468,14 +468,14 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
       </div>
 
       {mobileMenuOpen ? (
-        <div className="custom-scrollbar absolute left-3 right-3 top-[calc(100%+0.5rem)] z-50 max-h-[80vh] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)] xl:hidden">
+        <div className="custom-scrollbar absolute left-2 right-2 top-[calc(100%+0.5rem)] z-50 max-h-[calc(100dvh-4.5rem)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)] xl:hidden sm:left-3 sm:right-3">
           <MobileNavigation groups={navigationGroups} pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
         </div>
       ) : null}
 
       {searchOpen ? (
-        <div className="fixed inset-0 z-[70] flex items-start justify-center bg-black/60 px-4 py-20">
-          <div className="w-full max-w-2xl rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[0_24px_70px_rgba(0,0,0,0.45)]">
+        <div className="fixed inset-0 z-[70] flex min-h-dvh items-start justify-center bg-black/60 p-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-4 sm:py-20">
+          <div className="flex max-h-[calc(100dvh-1rem)] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-[0_24px_70px_rgba(0,0,0,0.45)] sm:max-h-[calc(100dvh-10rem)]">
             <div className="border-b border-[var(--border)] p-3">
               <label className="flex items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2">
                 <SearchIcon />
@@ -496,7 +496,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
               </label>
             </div>
 
-            <div className="custom-scrollbar max-h-[60vh] overflow-y-auto p-3">
+            <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
               {searchQuery.trim() ? (
                 searchResults.length > 0 ? (
                   <div className="grid gap-2">

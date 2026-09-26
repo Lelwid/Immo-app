@@ -267,9 +267,9 @@ export default function OnboardingPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[var(--background)] px-4 py-6 text-[var(--foreground)] sm:px-6">
+    <main className="min-h-dvh bg-[var(--background)] px-3 py-4 text-[var(--foreground)] sm:px-6 sm:py-6">
       <div className="mx-auto grid w-full max-w-5xl gap-6">
-        <header className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <header className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-sm font-medium text-[var(--muted)]">Configuration initiale</p>
@@ -306,7 +306,7 @@ export default function OnboardingPage() {
           </div>
         </header>
 
-        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5">
+        <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           {step === 0 ? <WelcomeStep /> : null}
           {step === 1 ? (
             <PropertyStep
