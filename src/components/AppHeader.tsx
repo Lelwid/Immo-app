@@ -283,7 +283,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
       className="relative flex min-h-14 w-full min-w-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 sm:min-h-12 sm:gap-3 sm:px-4"
     >
       {!compact ? (
-        <Link href="/dashboard" className="flex shrink-0 items-center gap-3">
+        <Link href="/dashboard" className="hidden shrink-0 items-center gap-3 sm:flex">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[color:var(--accent)]/30 bg-white">
             <Image src="/icons/nexbail-icon-192x192.png" alt="Logo Nexbail" width={28} height={28} className="h-full w-full object-contain" />
           </div>
@@ -293,6 +293,30 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
           </div>
         </Link>
       ) : null}
+
+      <div className="flex min-w-0 shrink-0 items-center gap-2 sm:hidden">
+        <button
+          type="button"
+          aria-expanded={mobileMenuOpen}
+          aria-label="Ouvrir la navigation"
+          onClick={() => {
+            setMobileMenuOpen((open) => !open);
+            setActiveDropdown(null);
+            setNotificationsOpen(false);
+            setSettingsOpen(false);
+            setSearchOpen(false);
+          }}
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
+        >
+          <MenuIcon />
+        </button>
+        <Link href="/dashboard" className="flex min-w-0 items-center gap-2" aria-label="Nexbail — Tableau de bord">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[color:var(--accent)]/30 bg-white">
+            <Image src="/icons/nexbail-icon-192x192.png" alt="" width={32} height={32} className="h-full w-full object-contain" />
+          </span>
+          <span className="truncate text-sm font-semibold text-[var(--foreground)]">Nexbail</span>
+        </Link>
+      </div>
 
       {!compact ? (
       <div className="hidden shrink-0 items-center gap-1 text-sm font-medium text-[var(--muted)] xl:flex">
@@ -333,7 +357,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
             setSettingsOpen(false);
             setSearchOpen(false);
           }}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8 xl:hidden"
+          className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:flex sm:h-8 sm:w-8 xl:hidden"
         >
           <MenuIcon />
         </button>
@@ -445,7 +469,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
           aria-label={theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}
           title={theme === "dark" ? "Clair" : "Sombre"}
           onClick={toggleTheme}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8"
+          className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:flex sm:h-8 sm:w-8"
         >
           <ThemeIcon theme={theme} />
         </button>
@@ -519,7 +543,13 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
 
       {mobileMenuOpen ? (
         <div className="custom-scrollbar absolute left-2 right-2 top-[calc(100%+0.5rem)] z-50 max-h-[calc(100dvh-4.5rem)] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)] xl:hidden sm:left-3 sm:right-3">
-          <MobileNavigation groups={navigationGroups} pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
+          <MobileNavigation
+            groups={navigationGroups}
+            pathname={pathname}
+            theme={theme}
+            onNavigate={() => setMobileMenuOpen(false)}
+            onToggleTheme={toggleTheme}
+          />
         </div>
       ) : null}
 
@@ -671,9 +701,31 @@ function DesktopNavItem({
   );
 }
 
-function MobileNavigation({ groups, pathname, onNavigate }: { groups: NavGroup[]; pathname: string; onNavigate: () => void }) {
+function MobileNavigation({
+  groups,
+  pathname,
+  theme,
+  onNavigate,
+  onToggleTheme,
+}: {
+  groups: NavGroup[];
+  pathname: string;
+  theme: Theme;
+  onNavigate: () => void;
+  onToggleTheme: () => void;
+}) {
   return (
     <div className="grid gap-3">
+      <button
+        type="button"
+        onClick={onToggleTheme}
+        className="flex min-h-10 w-full items-center justify-between gap-3 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-left text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 sm:hidden"
+      >
+        <span>{theme === "dark" ? "Passer en mode clair" : "Passer en mode sombre"}</span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)]">
+          <ThemeIcon theme={theme} />
+        </span>
+      </button>
       {groups.map((group) => {
         const active = isGroupActive(pathname, group);
 

@@ -52,13 +52,14 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
   const enabled = options.enabled ?? true;
   const { store } = useLocalStore();
   const { configured, loading: authLoading, user } = useAuth();
+  const userId = user?.id ?? null;
   const [snapshot, setSnapshot] = useState<PortfolioSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dataMode, setDataModeState] = useState<DataMode>(() => getDataMode());
   const mountedRef = useRef(false);
   const requestIdRef = useRef(0);
-  const contextKeyRef = useRef(`${getDataMode()}:${user?.id ?? "anonymous"}`);
+  const contextKeyRef = useRef(`${getDataMode()}:${userId ?? "anonymous"}`);
 
   const applySnapshotLoad = useCallback(async (loader: () => Promise<PortfolioSnapshot>, showLoading: boolean) => {
     const requestId = requestIdRef.current + 1;
@@ -96,8 +97,16 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
 
   useEffect(() => {
     mountedRef.current = true;
+
+    return () => {
+      mountedRef.current = false;
+      requestIdRef.current += 1;
+    };
+  }, []);
+
+  useEffect(() => {
     const nextDataMode = getDataMode();
-    const nextContextKey = `${nextDataMode}:${user?.id ?? "anonymous"}`;
+    const nextContextKey = `${nextDataMode}:${userId ?? "anonymous"}`;
 
     if (contextKeyRef.current !== nextContextKey) {
       contextKeyRef.current = nextContextKey;
@@ -113,14 +122,12 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
 
     if (!enabled) {
       return () => {
-        mountedRef.current = false;
         requestIdRef.current += 1;
       };
     }
 
-    if (nextDataMode === "supabase" && configured && (authLoading || !user)) {
+    if (nextDataMode === "supabase" && configured && (authLoading || !userId)) {
       return () => {
-        mountedRef.current = false;
         requestIdRef.current += 1;
       };
     }
@@ -131,10 +138,9 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
 
     return () => {
       window.clearTimeout(timer);
-      mountedRef.current = false;
       requestIdRef.current += 1;
     };
-  }, [applySnapshotLoad, authLoading, configured, enabled, user, user?.id]);
+  }, [applySnapshotLoad, authLoading, configured, enabled, userId]);
 
   useEffect(() => {
     function handleDataModeChange() {
@@ -146,14 +152,14 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
       setDataModeState(nextDataMode);
       clearPortfolioSnapshotCache();
 
-      if (enabled && nextDataMode === "supabase" && (!configured || user)) {
+      if (enabled && nextDataMode === "supabase" && (!configured || userId)) {
         void applySnapshotLoad(() => refreshSnapshot(), true);
       }
     }
 
     window.addEventListener(DATA_MODE_CHANGED_EVENT, handleDataModeChange);
     return () => window.removeEventListener(DATA_MODE_CHANGED_EVENT, handleDataModeChange);
-  }, [applySnapshotLoad, configured, enabled, user]);
+  }, [applySnapshotLoad, configured, enabled, userId]);
 
   const refresh = useCallback(() => applySnapshotLoad(() => refreshSnapshot(), false), [applySnapshotLoad]);
 
@@ -168,7 +174,7 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
   const hasSnapshot = Boolean(snapshot);
   const data = isSupabaseMode ? snapshot : (snapshot ?? store);
   const source: PortfolioSnapshotSource = isSupabaseMode ? (snapshot ? "snapshot" : "fallback") : snapshot ? "snapshot" : "local";
-  const canLoadSupabaseSnapshot = !isSupabaseMode || !configured || Boolean(user);
+  const canLoadSupabaseSnapshot = !isSupabaseMode || !configured || Boolean(userId);
   const showInitialLoader = enabled && isSupabaseMode && canLoadSupabaseSnapshot && !snapshot && !error;
   const effectiveLoading = enabled && (loading || showInitialLoader);
   const isReady = !enabled || (!isSupabaseMode && Boolean(data)) || (isSupabaseMode && Boolean(snapshot));

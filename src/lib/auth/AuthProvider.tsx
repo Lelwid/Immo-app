@@ -1,7 +1,7 @@
 "use client";
 
 import type { Session, User } from "@supabase/supabase-js";
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { clearPortfolioSnapshotCache } from "@/lib/data/portfolioSnapshotService";
 import { setDataMode } from "@/lib/data/dataMode";
 import { ONBOARDING_TRANSITION_KEY } from "@/lib/onboardingDecision";
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
+  const sessionUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!supabase) {
@@ -36,32 +37,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    supabase.auth.getSession().then(({ data }) => {
-      clearPortfolioSnapshotCache();
-      if (data.session?.user) {
+    let cancelled = false;
+    let sessionObserved = false;
+
+    function applySession(nextSession: Session | null) {
+      if (cancelled) {
+        return;
+      }
+
+      sessionObserved = true;
+      const nextUserId = nextSession?.user.id ?? null;
+
+      if (sessionUserIdRef.current !== nextUserId) {
+        sessionUserIdRef.current = nextUserId;
+        clearPortfolioSnapshotCache();
+      }
+
+      if (nextUserId) {
         setDataMode("supabase");
       }
-      setSession(data.session);
+
+      setSession(nextSession);
       setLoading(false);
-    });
+    }
+
+    void supabase.auth
+      .getSession()
+      .then(({ data, error }) => {
+        if (error) {
+          if (!cancelled && !sessionObserved) {
+            console.error("Impossible de récupérer la session Supabase.", error);
+            setLoading(false);
+          }
+          return;
+        }
+
+        applySession(data.session);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled && !sessionObserved) {
+          console.error("Impossible de récupérer la session Supabase.", error);
+          setLoading(false);
+        }
+      });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, nextSession) => {
-      clearPortfolioSnapshotCache();
       if (event === "PASSWORD_RECOVERY") {
         setPasswordRecovery(true);
       } else if (event === "SIGNED_OUT") {
         setPasswordRecovery(false);
       }
-      if (nextSession?.user) {
-        setDataMode("supabase");
-      }
-      setSession(nextSession);
-      setLoading(false);
+
+      applySession(nextSession);
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const value = useMemo<AuthContextValue>(

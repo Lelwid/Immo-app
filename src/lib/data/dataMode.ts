@@ -16,6 +16,10 @@ export function setDataMode(mode: DataMode) {
     return;
   }
 
+  if (getDataMode() === mode) {
+    return;
+  }
+
   window.localStorage.setItem(DATA_MODE_KEY, mode);
   window.dispatchEvent(new CustomEvent(DATA_MODE_CHANGED_EVENT, { detail: mode }));
 }

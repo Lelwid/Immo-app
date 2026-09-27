@@ -47,16 +47,16 @@ function getSupabaseOnboardingDecision(input: OnboardingDecisionInput): Onboardi
     return { status: "allow", reason: "supabase-public-route" };
   }
 
+  if (input.portfolioError) {
+    return { status: "error", reason: "portfolio-error" };
+  }
+
   if (input.onboardingTransitionActive && input.propertyCount === 0) {
     return { status: "loading", reason: "supabase-onboarding-transition" };
   }
 
   if (!input.portfolioLoaded) {
     return { status: "loading", reason: "portfolio-loading" };
-  }
-
-  if (input.portfolioError) {
-    return { status: "error", reason: "portfolio-error" };
   }
 
   if (input.propertyCount === 0) {
