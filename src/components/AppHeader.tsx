@@ -144,6 +144,31 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
   }, [theme]);
 
   useEffect(() => {
+    if (!notificationsOpen || !window.matchMedia("(max-width: 639px)").matches) {
+      return;
+    }
+
+    const body = document.body;
+    const root = document.documentElement;
+    const previousBodyOverflow = body.style.overflow;
+    const previousBodyOverscrollBehavior = body.style.overscrollBehavior;
+    const previousRootOverflow = root.style.overflow;
+    const previousRootOverscrollBehavior = root.style.overscrollBehavior;
+
+    body.style.overflow = "hidden";
+    body.style.overscrollBehavior = "none";
+    root.style.overflow = "hidden";
+    root.style.overscrollBehavior = "none";
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      body.style.overscrollBehavior = previousBodyOverscrollBehavior;
+      root.style.overflow = previousRootOverflow;
+      root.style.overscrollBehavior = previousRootOverscrollBehavior;
+    };
+  }, [notificationsOpen]);
+
+  useEffect(() => {
     function handleShortcut(event: globalThis.KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -369,25 +394,50 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
           </button>
 
           {notificationsOpen ? (
-            <div className="custom-scrollbar absolute right-0 top-10 z-50 max-h-[70vh] w-[min(420px,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_60px_rgba(0,0,0,0.35)]">
-              <div className="mb-3 flex items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
-                <div>
-                  <h2 className="font-semibold text-[var(--foreground)]">Notifications</h2>
-                  <p className="mt-0.5 text-xs text-[var(--muted)]">{notifications.length} notifications actives</p>
-                </div>
-                <Link href="/notifications" onClick={() => setNotificationsOpen(false)} className="text-xs font-semibold text-[color:var(--accent)] hover:underline">
-                  Tout voir
-                </Link>
-              </div>
-              <NotificationList notifications={notifications.slice(0, 5)} compact />
-              <Link
-                href="/notifications"
+            <>
+              <button
+                aria-label="Fermer les notifications"
+                className="fixed inset-0 z-[79] bg-black/55 sm:hidden"
                 onClick={() => setNotificationsOpen(false)}
-                className="mt-3 flex w-full items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
+                type="button"
+              />
+              <section
+                aria-label="Notifications"
+                aria-modal="true"
+                className="fixed inset-0 z-[80] flex h-[100dvh] w-full min-w-0 flex-col overflow-hidden bg-[var(--surface)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] shadow-[0_24px_60px_rgba(0,0,0,0.35)] sm:absolute sm:inset-auto sm:right-0 sm:top-10 sm:z-50 sm:max-h-[70vh] sm:w-[min(420px,calc(100vw-2rem))] sm:rounded-lg sm:border sm:border-[var(--border)] sm:p-3"
+                role="dialog"
               >
-                Voir toutes les notifications
-              </Link>
-            </div>
+                <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] pb-3">
+                  <div className="min-w-0">
+                    <h2 className="font-semibold text-[var(--foreground)]">Notifications</h2>
+                    <p className="mt-0.5 min-w-0 text-xs text-[var(--muted)] [overflow-wrap:anywhere]">{notifications.length} notifications actives</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Link href="/notifications" onClick={() => setNotificationsOpen(false)} className="text-xs font-semibold text-[color:var(--accent)] hover:underline">
+                      Tout voir
+                    </Link>
+                    <button
+                      aria-label="Fermer les notifications"
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-xl leading-none text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:hidden"
+                      onClick={() => setNotificationsOpen(false)}
+                      type="button"
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="custom-scrollbar min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pt-3">
+                  <NotificationList notifications={notifications.slice(0, 5)} compact />
+                  <Link
+                    href="/notifications"
+                    onClick={() => setNotificationsOpen(false)}
+                    className="mt-3 flex w-full items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-center text-sm font-semibold text-[var(--foreground)] transition hover:border-[color:var(--accent)]/60 hover:text-[color:var(--accent)]"
+                  >
+                    Voir toutes les notifications
+                  </Link>
+                </div>
+              </section>
+            </>
           ) : null}
         </div>
         <button

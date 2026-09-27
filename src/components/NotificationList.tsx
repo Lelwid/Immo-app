@@ -66,26 +66,26 @@ export function NotificationList({
                 <span className="min-w-0 text-xs font-medium text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal]">{notification.timing}</span>
               </div>
               <div className={`${compact ? "mt-1.5" : "mt-2"} flex min-w-0 items-start justify-between gap-3 overflow-hidden`}>
-                <h3 className={`min-w-0 line-clamp-2 font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal] transition group-hover:text-[color:var(--accent)] ${compact ? "text-sm leading-5" : ""}`}>
+                <h3 className={`min-w-0 font-semibold text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal] transition group-hover:text-[color:var(--accent)] ${compact ? "line-clamp-none text-sm leading-5 sm:line-clamp-2" : "line-clamp-2"}`}>
                   {notification.title}
                 </h3>
                 <span className={`${compact ? "text-xs" : "text-sm"} shrink-0 text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[color:var(--accent)]`} aria-hidden="true">
                   →
                 </span>
               </div>
-              <p className={`${compact ? "mt-0.5 line-clamp-1 text-xs" : "mt-1 line-clamp-2 text-sm"} min-w-0 text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal]`}>
+              <p className={`${compact ? "mt-0.5 line-clamp-none text-xs sm:line-clamp-1" : "mt-1 line-clamp-2 text-sm"} min-w-0 text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal]`}>
                 {notification.property} · {notification.unit}
                 {notification.tenant ? ` · ${notification.tenant}` : ""}
               </p>
               <div className={`${compact ? "mt-1.5 grid gap-1 text-xs leading-4" : "mt-2 grid gap-1.5 text-sm leading-5"} min-w-0 overflow-hidden`}>
-                <p className={`min-w-0 text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal] ${compact ? "line-clamp-2" : ""}`}>
+                <p className={`min-w-0 text-[var(--foreground)] [overflow-wrap:anywhere] [word-break:normal] ${compact ? "line-clamp-none sm:line-clamp-2" : ""}`}>
                   <span className="font-semibold">Action:</span> {notification.recommendedAction}
                 </p>
-                <p className={`min-w-0 text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal] ${compact ? "line-clamp-2" : ""}`}>
+                <p className={`min-w-0 text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal] ${compact ? "line-clamp-none sm:line-clamp-2" : ""}`}>
                   <span className="font-semibold text-[var(--foreground)]">Pourquoi:</span> {notification.urgencyReason}
                 </p>
                 {notification.relatedDeadline ? (
-                  <p className="line-clamp-1 min-w-0 text-xs font-medium text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal]">
+                  <p className={`min-w-0 text-xs font-medium text-[var(--muted)] [overflow-wrap:anywhere] [word-break:normal] ${compact ? "line-clamp-none sm:line-clamp-1" : "line-clamp-1"}`}>
                     Échéance: {formatDate(notification.relatedDeadline)}
                   </p>
                 ) : null}
