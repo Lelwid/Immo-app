@@ -32,7 +32,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   applicationName: "Nexbail",
   title: "Nexbail — Gestion immobilière",
-  description: "Tableau de bord MVP SaaS pour la gestion immobilière locative au Québec.",
+  description: "Nexbail — La gestion locative, simplement.",
   manifest: "/site.webmanifest",
   icons: {
     icon: [

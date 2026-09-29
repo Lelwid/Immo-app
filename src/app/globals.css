@@ -43,6 +43,18 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+.nexbail-brand-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .nexbail-brand-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .nexbail-brand-dark {
+  display: block;
+}
+
 button {
   cursor: pointer;
 }

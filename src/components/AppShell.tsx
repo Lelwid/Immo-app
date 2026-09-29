@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { CSSProperties } from "react";
@@ -8,6 +7,7 @@ import { useEffect, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { AppIcon, type IconName } from "@/components/AppIcon";
 import { HabixaCopilot } from "@/components/HabixaCopilot";
+import { NexbailBrand } from "@/components/NexbailBrand";
 
 type AppShellProps = {
   children: React.ReactNode;
@@ -125,18 +125,12 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
       }`}
     >
       <div className={`relative flex gap-3 ${collapsed ? "-translate-x-2 flex-col items-center" : "items-center justify-between"}`}>
-        <Link href="/dashboard" className={`flex min-w-0 items-center rounded-2xl py-1.5 ${collapsed ? "justify-center px-0" : "gap-3 px-2"}`}>
-          <span className={`flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white transition-[height,width] duration-200 ${collapsed ? "h-12 w-12" : "h-11 w-11"}`}>
-            <Image src="/icons/nexbail-icon-192x192.png" alt="Logo Nexbail" width={44} height={44} className="h-full w-full object-contain" />
-          </span>
-          <span
-            className={`min-w-0 overflow-hidden transition-[max-width,opacity,transform] duration-200 ${
-              collapsed ? "hidden" : "max-w-[150px] translate-x-0 opacity-100"
-            }`}
-          >
-            <span className="block truncate text-xl font-bold tracking-normal">Nexbail</span>
-            <span className="block truncate text-xs text-[var(--muted)]">Gestionnaire Immo</span>
-          </span>
+        <Link href="/dashboard" className={`flex min-w-0 items-center rounded-2xl py-1.5 ${collapsed ? "justify-center px-0" : "px-2"}`} aria-label="Nexbail — Tableau de bord">
+          {collapsed ? (
+            <NexbailBrand alt="Nexbail" className="h-12 w-12" priority variant="monogram" />
+          ) : (
+            <NexbailBrand alt="Nexbail — La gestion locative, simplement." className="h-[54px] w-[166px]" priority tone="dark" />
+          )}
         </Link>
 
         <button

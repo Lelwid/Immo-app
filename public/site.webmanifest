@@ -1,6 +1,9 @@
 {
   "name": "Nexbail",
   "short_name": "Nexbail",
+  "description": "La gestion locative, simplement.",
+  "start_url": "/",
+  "scope": "/",
   "icons": [
     {
       "src": "/icons/nexbail-icon-192x192.png",
@@ -13,7 +16,7 @@
       "type": "image/png"
     }
   ],
-  "theme_color": "#071122",
-  "background_color": "#071122",
+  "theme_color": "#0F172A",
+  "background_color": "#0F172A",
   "display": "standalone"
 }

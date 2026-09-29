@@ -16,6 +16,7 @@ type TenantInvitationEmailInput = {
 export async function sendTenantInvitationEmail(input: TenantInvitationEmailInput) {
   const configuration = getEmailConfiguration();
   const invitationUrl = buildInvitationUrl(configuration.appUrl, input.token);
+  const logoUrl = new URL("/brand/nexbail-logo-email.png", configuration.appUrl).toString();
   const ownerName = input.ownerName?.trim() || "Nexbail";
   const subject = "Invitation à votre portail locataire Nexbail";
   const text = [
@@ -31,7 +32,7 @@ export async function sendTenantInvitationEmail(input: TenantInvitationEmailInpu
   ].join("\n");
   const html = `
     <div style="font-family:Arial,sans-serif;color:#172033;line-height:1.6;max-width:560px;margin:0 auto;padding:24px">
-      <h1 style="font-size:24px;margin:0 0 24px">Nexbail</h1>
+      <img src="${escapeHtml(logoUrl)}" alt="Nexbail" width="246" height="80" style="display:block;width:246px;max-width:100%;height:auto;margin:0 0 24px" />
       <p>${escapeHtml(ownerName)} vous invite à accéder à votre portail locataire.</p>
       <p>Vous pourrez consulter votre bail, vos paiements, vos documents partagés et transmettre des demandes d'entretien.</p>
       <p style="margin:28px 0">

@@ -1,10 +1,10 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { AppIcon, type IconName } from "@/components/AppIcon";
+import { NexbailBrand } from "@/components/NexbailBrand";
 import { useAuth } from "@/lib/auth/AuthProvider";
 
 type TenantPortalShellProps = {
@@ -75,14 +75,14 @@ export function TenantPortalShell({ children }: TenantPortalShellProps) {
 
 function TenantPortalBrand({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/locataire" className="flex min-w-0 items-center gap-3">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white">
-        <Image src="/icons/nexbail-icon-192x192.png" alt="Logo Nexbail" width={40} height={40} className="h-full w-full object-contain" />
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-base font-bold">Nexbail</span>
-        <span className="block truncate text-xs text-[var(--muted)]">{compact ? "Portail locataire" : "Espace locataire"}</span>
-      </span>
+    <Link href="/locataire" className="flex min-w-0 items-center gap-3" aria-label="Nexbail — Portail locataire">
+      <NexbailBrand
+        alt="Nexbail"
+        className={compact ? "h-10 w-[123px]" : "h-[52px] w-[160px]"}
+        priority
+        tone={compact ? "auto" : "dark"}
+      />
+      {compact ? <span className="hidden text-xs text-[var(--muted)] sm:block">Portail locataire</span> : null}
     </Link>
   );
 }

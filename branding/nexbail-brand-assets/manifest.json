@@ -1,0 +1,131 @@
+{
+  "status": "OFFICIAL — approved brand master",
+  "source": "Imagen de ChatGPT 28 sept 2026, 09_23_28 p.m..png",
+  "sourceSha256": "19d892e06ca47b45cdaf221313133084fb37553cf8a8810760cb6dd6dd5a793a",
+  "sourceSize": [
+    1920,
+    819
+  ],
+  "palette": {
+    "blue": "#2563EB",
+    "navy": "#0F172A",
+    "light": "#EFF6FF",
+    "gray": "#64748B",
+    "success": "#16A34A",
+    "warning": "#F59E0B",
+    "error": "#EF4444"
+  },
+  "tagline": "La gestion locative, simplement.",
+  "method": "Source raster cropping, opacity cleanup (80..240 linear ramp), recoloring and proportional resizing. No generated or traced geometry.",
+  "limitations": "Native symbol approximately 356×458 px. 1024 px output is upscaled, not a native vector master.",
+  "assets": [
+    {
+      "file": "logo/logo-nexbail-horizontal-light.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "747d54fd41e54f8ec2098bd0cd440188eecb7d3bf41bcdb2f1e6091eee11cba9"
+    },
+    {
+      "file": "logo/logo-nexbail-horizontal-dark.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "ba6a5ca9ce6882fd45af2689559e48e6817ce3f344ef8698ec504e265185382e"
+    },
+    {
+      "file": "logo/logo-nexbail-horizontal-light-transparent.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "509fe3ebb3540656b4265346a3a8ca044ed063af8afa16e90da9163601da511e"
+    },
+    {
+      "file": "logo/logo-nexbail-horizontal-dark-transparent.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "68cfd90c4487f422d19c23d2114b6f4f45dc168e805d174144722de4a481a003"
+    },
+    {
+      "file": "monogram/nexbail-monogram-transparent-512.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "76d6b22c37c8c82e4f115bca7f901252d6b01965019ee4cf5ffca939c05386da"
+    },
+    {
+      "file": "monogram/nexbail-monogram-white-512.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "2f887ec0caf1d4118b4575c11ab659f935b0017396a3e6154a66f0583e40f15c"
+    },
+    {
+      "file": "monogram/nexbail-monogram-native.png",
+      "width": 368,
+      "height": 468,
+      "sha256": "270efe247eb96b21a35843320f639d5d76a940c4b897e271615d919a8a25b169"
+    },
+    {
+      "file": "logo/logo-nexbail-monochrome-white.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "6cc468da5292571126e9775f24d2a256661ea9be6bedd2227036f02ea39c0a2b"
+    },
+    {
+      "file": "logo/logo-nexbail-source-glow.png",
+      "width": 1740,
+      "height": 660,
+      "sha256": "59911cc621147b69baa0b1a859197d9a61c827239beab7344cfde73e61bfc88b"
+    },
+    {
+      "file": "favicon/favicon-16.png",
+      "width": 16,
+      "height": 16,
+      "sha256": "25a67f4e05f2d9ed1c65364746a01fb1f6a5f41d5752ac6e7492ef1cea0dd840"
+    },
+    {
+      "file": "favicon/favicon-32.png",
+      "width": 32,
+      "height": 32,
+      "sha256": "6ad02d5c29faea8ca2937af89538e85533a1db56760c8764109332f3f477fa57"
+    },
+    {
+      "file": "favicon/favicon-48.png",
+      "width": 48,
+      "height": 48,
+      "sha256": "754e0a4119828548daaa43ad08718b01f956047832acbc7d2ce7a4130e4b5125"
+    },
+    {
+      "file": "pwa/apple-touch-icon-180.png",
+      "width": 180,
+      "height": 180,
+      "sha256": "7037e654c16c1e9579f80284497ff507424d4ba19f6d4d17b826357f01f896ce"
+    },
+    {
+      "file": "pwa/pwa-192.png",
+      "width": 192,
+      "height": 192,
+      "sha256": "e7a64d541d2c40bdb840b2119d833119f5c3ee3d71425f050f5765b2c48410bb"
+    },
+    {
+      "file": "pwa/pwa-512.png",
+      "width": 512,
+      "height": 512,
+      "sha256": "7b861721ff72d7e00979cb4245adc39b8e25038aff0bc8c4a9aef3aa377c335f"
+    },
+    {
+      "file": "app/app-icon-1024.png",
+      "width": 1024,
+      "height": 1024,
+      "sha256": "6b61b055b80168c4bf4467794cf40a863cb3221de80063a3a32a40faa7579366"
+    },
+    {
+      "file": "email/logo-nexbail-email.png",
+      "width": 800,
+      "height": 260,
+      "sha256": "47f6347f844dfab3b18dde003c36a62d895d95187183aa5cfee93fc0ccce5b6f"
+    },
+    {
+      "file": "preview/nexbail-assets-review.png",
+      "width": 1680,
+      "height": 1520,
+      "sha256": "1349126a4476ee5d56b837dfaa247e46dc4cd3a1063511fddfd13c2a3537924b"
+    }
+  ]
+}

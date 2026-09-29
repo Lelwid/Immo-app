@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { NexbailBrand } from "@/components/NexbailBrand";
 import { DEMO_AUTH_KEY, useAuth } from "@/lib/auth/AuthProvider";
 
 type AuthMode = "connexion" | "inscription" | "reset";
@@ -102,8 +103,8 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     <main className="flex min-h-dvh items-center justify-center bg-[var(--background)] px-3 py-[max(1rem,env(safe-area-inset-top))] text-[var(--foreground)] sm:px-4 sm:py-8">
       <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-6">
         <div className="mb-6">
-          <p className="text-sm font-medium text-[var(--muted)]">Nexbail</p>
-          <h1 className="mt-1 text-3xl font-semibold">
+          <NexbailBrand alt="Nexbail — La gestion locative, simplement." className="h-[62px] w-[191px]" priority />
+          <h1 className="mt-3 text-3xl font-semibold">
             {isPasswordUpdate ? "Créer un nouveau mot de passe" : isReset ? "Mot de passe oublié" : isSignup ? "Créer un compte" : "Connexion"}
           </h1>
           <p className="mt-2 text-sm leading-6 text-[var(--muted)]">

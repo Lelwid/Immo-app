@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
 import { AddressAutocomplete } from "@/components/AddressAutocomplete";
 import { FinancialTrackingFields } from "@/components/FinancialTrackingFields";
+import { NexbailBrand } from "@/components/NexbailBrand";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { createManualNormalizedAddress, type NormalizedAddress } from "@/lib/data/addressService";
 import { getDataMode, setDataMode } from "@/lib/data/dataMode";
@@ -271,7 +272,8 @@ export default function OnboardingPage() {
       <div className="mx-auto grid w-full max-w-5xl gap-6">
         <header className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 sm:p-5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div>
+            <div className="min-w-0">
+              <NexbailBrand alt="Nexbail — La gestion locative, simplement." className="mb-3 h-[54px] w-[166px]" priority />
               <p className="text-sm font-medium text-[var(--muted)]">Configuration initiale</p>
               <h1 className="mt-1 text-3xl font-semibold">Bienvenue dans Nexbail</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted)]">

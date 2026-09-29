@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth/AuthProvider";
+import { NexbailBrand } from "@/components/NexbailBrand";
 
 function AuthCallbackContent() {
   const router = useRouter();
@@ -39,8 +40,8 @@ function AuthCallbackContent() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--background)] px-4 py-8 text-[var(--foreground)]">
       <section className="w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6 text-center">
-        <p className="text-sm font-medium text-[var(--muted)]">Nexbail</p>
-        <h1 className="mt-2 text-2xl font-semibold">Confirmation du courriel</h1>
+        <NexbailBrand alt="Nexbail — La gestion locative, simplement." className="mx-auto h-[62px] w-[191px]" priority />
+        <h1 className="mt-4 text-2xl font-semibold">Confirmation du courriel</h1>
         {errorMessage ? (
           <>
             <p className="mt-4 rounded-lg border border-[color:var(--red)]/40 bg-[color:var(--red)]/10 p-4 text-sm leading-6 text-[color:var(--red)]" role="alert">

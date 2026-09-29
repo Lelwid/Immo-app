@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { NotificationList } from "@/components/NotificationList";
+import { NexbailBrand } from "@/components/NexbailBrand";
 import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
 import { useAuth } from "@/lib/auth/AuthProvider";
 import { DATA_MODE_KEY, setDataMode, type DataMode } from "@/lib/data/dataMode";
@@ -283,14 +283,8 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
       className="relative flex min-h-14 w-full min-w-0 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 sm:min-h-12 sm:gap-3 sm:px-4"
     >
       {!compact ? (
-        <Link href="/dashboard" className="hidden shrink-0 items-center gap-3 sm:flex">
-          <div className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[color:var(--accent)]/30 bg-white">
-            <Image src="/icons/nexbail-icon-192x192.png" alt="Logo Nexbail" width={28} height={28} className="h-full w-full object-contain" />
-          </div>
-          <div className="hidden min-w-0 sm:block">
-            <p className="truncate text-sm font-semibold leading-tight text-[var(--foreground)]">Nexbail</p>
-            <p className="truncate text-xs leading-tight text-[var(--muted)]">Portefeuille investisseurs</p>
-          </div>
+        <Link href="/dashboard" className="hidden shrink-0 items-center sm:flex" aria-label="Nexbail — Tableau de bord">
+          <NexbailBrand className="h-9 w-[111px]" priority />
         </Link>
       ) : null}
 
@@ -310,11 +304,8 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
         >
           <MenuIcon />
         </button>
-        <Link href="/dashboard" className="flex min-w-0 items-center gap-2" aria-label="Nexbail — Tableau de bord">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-[color:var(--accent)]/30 bg-white">
-            <Image src="/icons/nexbail-icon-192x192.png" alt="" width={32} height={32} className="h-full w-full object-contain" />
-          </span>
-          <span className="truncate text-sm font-semibold text-[var(--foreground)]">Nexbail</span>
+        <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Nexbail — Tableau de bord">
+          <NexbailBrand alt="Nexbail" className="h-8 w-[98px] max-[374px]:w-[86px]" priority />
         </Link>
       </div>
 
