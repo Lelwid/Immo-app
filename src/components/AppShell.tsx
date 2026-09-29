@@ -129,7 +129,7 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
           {collapsed ? (
             <NexbailBrand alt="Nexbail" className="h-12 w-12" priority variant="monogram" />
           ) : (
-            <NexbailBrand alt="Nexbail — La gestion locative, simplement." className="h-[54px] w-[166px]" priority tone="dark" />
+            <NexbailBrand alt="Nexbail" className="h-[54px] w-[166px]" priority tone="dark" variant="compact" />
           )}
         </Link>
 

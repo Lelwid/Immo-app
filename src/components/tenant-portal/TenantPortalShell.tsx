@@ -81,6 +81,7 @@ function TenantPortalBrand({ compact = false }: { compact?: boolean }) {
         className={compact ? "h-10 w-[123px]" : "h-[52px] w-[160px]"}
         priority
         tone={compact ? "auto" : "dark"}
+        variant="compact"
       />
       {compact ? <span className="hidden text-xs text-[var(--muted)] sm:block">Portail locataire</span> : null}
     </Link>

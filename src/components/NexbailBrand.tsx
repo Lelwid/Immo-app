@@ -5,7 +5,7 @@ type NexbailBrandProps = {
   className?: string;
   priority?: boolean;
   tone?: "auto" | "dark" | "light";
-  variant?: "horizontal" | "monogram";
+  variant?: "horizontal" | "compact" | "monogram";
 };
 
 export function NexbailBrand({
@@ -30,6 +30,13 @@ export function NexbailBrand({
     );
   }
 
+  const lightLogoSrc = variant === "compact"
+    ? "/brand/nexbail-logo-compact-light.png"
+    : "/brand/nexbail-logo-light.png";
+  const darkLogoSrc = variant === "compact"
+    ? "/brand/nexbail-logo-compact-dark.png"
+    : "/brand/nexbail-logo-dark.png";
+
   const lightLogo = (
     <Image
       alt={alt}
@@ -37,7 +44,7 @@ export function NexbailBrand({
       fill
       priority={priority}
       sizes="(max-width: 640px) 104px, 200px"
-      src="/brand/nexbail-logo-light.png"
+      src={lightLogoSrc}
     />
   );
   const darkLogo = (
@@ -47,7 +54,7 @@ export function NexbailBrand({
       fill
       priority={priority}
       sizes="(max-width: 640px) 104px, 200px"
-      src="/brand/nexbail-logo-dark.png"
+      src={darkLogoSrc}
     />
   );
 

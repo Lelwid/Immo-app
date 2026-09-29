@@ -126,6 +126,18 @@
       "width": 1680,
       "height": 1520,
       "sha256": "1349126a4476ee5d56b837dfaa247e46dc4cd3a1063511fddfd13c2a3537924b"
+    },
+    {
+      "file": "logo/logo-nexbail-horizontal-compact-light.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "89fdc125ca63d9b7fee826a22d586405582b5606905e05de49cf6333cdf6704c"
+    },
+    {
+      "file": "logo/logo-nexbail-horizontal-compact-dark.png",
+      "width": 1600,
+      "height": 520,
+      "sha256": "a5a71969da2db93e3eeedaf314fc1887710e297b52fde9165bc52e410ad234c1"
     }
   ]
 }

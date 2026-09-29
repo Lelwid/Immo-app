@@ -284,7 +284,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
     >
       {!compact ? (
         <Link href="/dashboard" className="hidden shrink-0 items-center sm:flex" aria-label="Nexbail — Tableau de bord">
-          <NexbailBrand className="h-9 w-[111px]" priority />
+          <NexbailBrand className="h-9 w-[111px]" priority variant="compact" />
         </Link>
       ) : null}
 
@@ -305,7 +305,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
           <MenuIcon />
         </button>
         <Link href="/dashboard" className="flex min-w-0 items-center" aria-label="Nexbail — Tableau de bord">
-          <NexbailBrand alt="Nexbail" className="h-8 w-[98px] max-[374px]:w-[86px]" priority />
+          <NexbailBrand alt="Nexbail" className="h-8 w-[98px] max-[374px]:w-[86px]" priority variant="compact" />
         </Link>
       </div>
 

@@ -26,9 +26,13 @@ Respecter exactement la casse, la ponctuation et l’accentuation.
 
 Utiliser `logo/logo-nexbail-horizontal-light.png` ou sa version transparente. Le wordmark navy est prévu pour les surfaces claires. Utiliser le monogramme seul lorsque l’espace ne permet pas de conserver le logo horizontal lisible.
 
+Dans les emplacements compacts, utiliser `logo/logo-nexbail-horizontal-compact-light.png`. Cette variante conserve exactement le N et le wordmark du master et retire uniquement la tagline devenue illisible à petite taille.
+
 ## Usage sur fond sombre
 
 Utiliser `logo/logo-nexbail-horizontal-dark.png` ou sa version transparente. Le wordmark blanc est prévu pour les surfaces navy ou sombres. Ne pas ajouter de carré blanc derrière le logo.
+
+Dans les emplacements compacts, utiliser `logo/logo-nexbail-horizontal-compact-dark.png`. La sidebar réduite, les favicons et les icônes PWA utilisent le monogramme seul.
 
 ## Règles minimales
 
