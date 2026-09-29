@@ -288,7 +288,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
         </Link>
       ) : null}
 
-      <div className="flex min-w-0 shrink-0 items-center gap-2 sm:hidden">
+      <div className={`${compact ? "flex lg:hidden" : "flex sm:hidden"} min-w-0 shrink-0 items-center gap-2`}>
         <button
           type="button"
           aria-expanded={mobileMenuOpen}
@@ -348,7 +348,7 @@ export function AppHeader({ compact = false }: { compact?: boolean } = {}) {
             setSettingsOpen(false);
             setSearchOpen(false);
           }}
-          className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:flex sm:h-8 sm:w-8 xl:hidden"
+          className={`${compact ? "hidden" : "hidden sm:flex"} h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)] sm:h-8 sm:w-8 xl:hidden`}
         >
           <MenuIcon />
         </button>
