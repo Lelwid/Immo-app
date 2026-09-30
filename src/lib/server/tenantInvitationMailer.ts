@@ -1,5 +1,7 @@
 import nodemailer from "nodemailer";
 
+const supportReplyTo = "Nexbail Support <support@nexbail.com>";
+
 export class TenantInvitationEmailConfigurationError extends Error {
   constructor(message: string) {
     super(message);
@@ -55,6 +57,7 @@ export async function sendTenantInvitationEmail(input: TenantInvitationEmailInpu
   await transport.sendMail({
     from: configuration.from,
     html,
+    replyTo: supportReplyTo,
     subject,
     text,
     to: input.email,
