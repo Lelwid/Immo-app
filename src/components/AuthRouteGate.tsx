@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AppShell } from "@/components/AppShell";
-import { emptyPortfolioStore, usePortfolioSnapshot } from "@/hooks/usePortfolioSnapshot";
+import { usePortfolioPresence } from "@/hooks/usePortfolioPresence";
 import { DEMO_AUTH_KEY, useAuth } from "@/lib/auth/AuthProvider";
 import { getDataMode } from "@/lib/data/dataMode";
 import { hasActiveTenantPortalAccount } from "@/lib/data/tenantPortalService";
@@ -63,13 +63,11 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     !isTenantPortal &&
     (isProtected || isSignInRoute || isOnboarding);
   const {
-    data,
     error: portfolioError,
     loading: portfolioLoading,
-    refresh: retryPortfolioCheck,
-    snapshot,
-  } = usePortfolioSnapshot({ enabled: shouldCheckSupabasePortfolio });
-  const portfolioData = data ?? emptyPortfolioStore;
+    propertyCount,
+    retry: retryPortfolioCheck,
+  } = usePortfolioPresence({ enabled: shouldCheckSupabasePortfolio, revalidationKey: pathname });
   const decision = shouldRequireOnboarding({
     authenticated,
     authLoaded: !loading,
@@ -82,8 +80,8 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     onboardingTransitionActive,
     pathname,
     portfolioError: Boolean(portfolioError),
-    portfolioLoaded: !shouldCheckSupabasePortfolio || Boolean(snapshot),
-    propertyCount: portfolioData.properties.length,
+    portfolioLoaded: !shouldCheckSupabasePortfolio || propertyCount !== null,
+    propertyCount: propertyCount ?? 0,
     supabaseConfigured: configured,
   });
 
@@ -149,12 +147,12 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
       decision,
       onboardingTransitionActive,
       pathname,
-      propertyCount: portfolioData.properties.length,
+      propertyCount: propertyCount ?? 0,
       redirectTarget: redirectTargetRef.current,
       shouldCheckSupabasePortfolio,
     });
 
-    if (onboardingTransitionActive && portfolioData.properties.length > 0) {
+    if (onboardingTransitionActive && (propertyCount ?? 0) > 0) {
       window.sessionStorage.removeItem(ONBOARDING_TRANSITION_KEY);
     }
 
@@ -171,7 +169,7 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
 
     redirectTargetRef.current = decision.to;
     router.replace(decision.to);
-  }, [authenticated, decision, isProtected, isTenantInvitation, isTenantPortal, isTenantProtected, loading, onboardingTransitionActive, pathname, portfolioData.properties.length, router, shouldCheckSupabasePortfolio, tenantRole]);
+  }, [authenticated, decision, isProtected, isTenantInvitation, isTenantPortal, isTenantProtected, loading, onboardingTransitionActive, pathname, propertyCount, router, shouldCheckSupabasePortfolio, tenantRole]);
 
   if ((isTenantProtected && loading) || tenantRole === "loading" || (decision.status === "loading" && !isPublic) || (shouldCheckSupabasePortfolio && portfolioLoading)) {
     const loadingContent = (
@@ -210,10 +208,8 @@ export function AuthRouteGate({ children }: { children: ReactNode }) {
     const errorContent = (
       <section className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-6">
         <div className="max-w-2xl">
-          <p className="text-sm font-semibold text-[color:var(--red)]">Impossible de vérifier votre portefeuille.</p>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Réessayez dans quelques instants. Si le problème persiste, vérifiez la configuration Supabase.
-          </p>
+          <p className="text-sm font-semibold text-[color:var(--red)]">Impossible de charger vos données pour le moment.</p>
+          <p className="mt-2 text-sm text-[var(--muted)]">Un problème temporaire est survenu. Veuillez réessayer dans quelques instants.</p>
           <button className="btn-primary mt-4" onClick={() => void retryPortfolioCheck()} type="button">
             Réessayer
           </button>

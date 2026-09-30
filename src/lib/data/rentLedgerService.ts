@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { createDataServiceError } from "@/lib/data/dataServiceError";
 import { createActivityRecord } from "@/lib/data/activitiesService";
 import { getTodayIsoDate } from "@/lib/data/paymentSideEffectsService";
 import { createPayment, updatePayment } from "@/lib/data/paymentsService";
@@ -114,14 +115,14 @@ export async function getRentCharges(): Promise<RentCharge[]> {
     return loadLocalStore().rentCharges;
   }
 
-  const { data, error } = await supabase!
+  const { data, error, status, statusText } = await supabase!
     .from(rentChargesTable)
     .select(rentChargeSelectColumns)
     .order("due_date", { ascending: false });
 
   if (error || !data) {
     console.error("Impossible de charger les loyers exigibles.", error);
-    throw new Error("Impossible de charger les loyers exigibles.");
+    throw createDataServiceError("Impossible de charger les loyers exigibles.", error, { status, statusText });
   }
 
   return data.map(fromSupabaseRentCharge);
@@ -132,14 +133,14 @@ export async function getPaymentTransactions(): Promise<PaymentTransaction[]> {
     return loadLocalStore().paymentTransactions;
   }
 
-  const { data, error } = await supabase!
+  const { data, error, status, statusText } = await supabase!
     .from(paymentTransactionsTable)
     .select(paymentTransactionSelectColumns)
     .order("received_at", { ascending: false });
 
   if (error || !data) {
     console.error("Impossible de charger les transactions de paiement.", error);
-    throw new Error("Impossible de charger les transactions de paiement.");
+    throw createDataServiceError("Impossible de charger les transactions de paiement.", error, { status, statusText });
   }
 
   return data.map(fromSupabasePaymentTransaction);
@@ -150,11 +151,11 @@ export async function getPaymentAllocations(): Promise<PaymentAllocation[]> {
     return loadLocalStore().paymentAllocations;
   }
 
-  const { data, error } = await supabase!.from(paymentAllocationsTable).select(paymentAllocationSelectColumns);
+  const { data, error, status, statusText } = await supabase!.from(paymentAllocationsTable).select(paymentAllocationSelectColumns);
 
   if (error || !data) {
     console.error("Impossible de charger les répartitions de paiement.", error);
-    throw new Error("Impossible de charger les répartitions de paiement.");
+    throw createDataServiceError("Impossible de charger les répartitions de paiement.", error, { status, statusText });
   }
 
   return data.map(fromSupabasePaymentAllocation);

@@ -11,7 +11,7 @@ const settingsSections = [
     title: "Région et devise",
   },
   {
-    description: "Le mode local démo et le mode Supabase restent disponibles dans le menu utilisateur.",
+    description: "Le mode local démo et le mode connecté restent disponibles dans le menu utilisateur.",
     title: "Mode de données",
   },
   {

@@ -108,7 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: session?.user ?? null,
       async signInWithEmail(email, password) {
         if (!supabase) {
-          return { error: "Supabase n’est pas encore configuré." };
+          return { error: "Le service de connexion n’est pas disponible pour le moment." };
         }
 
         const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
@@ -116,7 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signUpWithEmail(email, password, redirectPath = "/onboarding") {
         if (!supabase) {
-          return { error: "Supabase n’est pas encore configuré." };
+          return { error: "Le service de connexion n’est pas disponible pour le moment." };
         }
 
         const { data, error } = await supabase.auth.signUp({
@@ -139,7 +139,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async signInWithGoogle(redirectPath = "/dashboard") {
         if (!supabase) {
-          return { error: "Supabase n’est pas encore configuré." };
+          return { error: "Le service de connexion n’est pas disponible pour le moment." };
         }
 
         setDataMode("supabase");
@@ -153,7 +153,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async resetPassword(email) {
         if (!supabase) {
-          return { error: "Supabase n’est pas encore configuré." };
+          return { error: "Le service de connexion n’est pas disponible pour le moment." };
         }
 
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -163,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       async updatePassword(password) {
         if (!supabase) {
-          return { error: "Supabase n’est pas encore configuré." };
+          return { error: "Le service de connexion n’est pas disponible pour le moment." };
         }
 
         const { error } = await supabase.auth.updateUser({ password });

@@ -9,6 +9,7 @@ import { getPaymentAllocations, getPaymentTransactions, getRentCharges } from "@
 import { getTasks } from "@/lib/data/tasksService";
 import { getTenants } from "@/lib/data/tenantsService";
 import { getUnits } from "@/lib/data/unitsService";
+import { getDataErrorDiagnostics, withTransientRetry } from "@/lib/data/transientRetry";
 import type { LocalStore, MaintenanceTicket, Unit } from "@/lib/types";
 
 export type PortfolioSnapshot = LocalStore & {
@@ -118,7 +119,18 @@ async function fetchPortfolioSnapshot(): Promise<PortfolioSnapshot> {
 
 async function loadSnapshotDomain<T>(domain: string, loader: () => Promise<T>): Promise<T> {
   try {
-    return await loader();
+    return await withTransientRetry(loader, {
+      onRetry: ({ delayMs, error, nextAttempt }) => {
+        const diagnostics = getDataErrorDiagnostics(error);
+        console.warn("[portfolioSnapshotService] Nouvelle tentative après une erreur transitoire.", {
+          attempt: nextAttempt,
+          code: diagnostics.code,
+          delayMs,
+          domain,
+          status: diagnostics.status,
+        });
+      },
+    });
   } catch (error) {
     console.error(`[portfolioSnapshotService] Domaine impossible à charger: ${domain}.`, {
       domain,
@@ -146,13 +158,16 @@ function createPortfolioSnapshotError(cause: unknown) {
 function serializeSnapshotError(error: unknown) {
   const cause = error instanceof Error ? (error as Error & { cause?: unknown }).cause : null;
   const source = isStructuredSupabaseCause(cause) ? cause : isStructuredSupabaseCause(error) ? error : null;
+  const diagnostics = getDataErrorDiagnostics(error);
 
   if (source) {
     return {
       message: source.message ?? (error instanceof Error ? error.message : String(error)),
-      code: source.code ?? null,
+      code: source.code ?? diagnostics.code,
       details: source.details ?? null,
       hint: source.hint ?? null,
+      status: source.status ?? diagnostics.status,
+      statusText: source.statusText ?? null,
       operation: source.operation,
       table: source.table,
       selectedColumns: source.selectedColumns,
@@ -176,6 +191,8 @@ function isStructuredSupabaseCause(value: unknown): value is {
   message?: string;
   operation?: string;
   selectedColumns?: string;
+  status?: number | null;
+  statusText?: string | null;
   table?: string;
 } {
   return Boolean(value && typeof value === "object" && ("message" in value || "code" in value || "details" in value || "hint" in value));

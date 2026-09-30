@@ -113,7 +113,7 @@ export function HabixaCopilot() {
               </span>
               <div className="min-w-0">
                 <h2 className="truncate text-sm font-bold text-[var(--foreground)]">Nexbail Copilot</h2>
-                <p className="truncate text-xs text-[var(--muted)]">{isSupabaseMode ? "Données Supabase sécurisées" : "Mode local / démo"}</p>
+                <p className="truncate text-xs text-[var(--muted)]">{isSupabaseMode ? "Données Nexbail sécurisées" : "Mode local / démo"}</p>
               </div>
             </div>
             <button

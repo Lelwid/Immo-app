@@ -162,7 +162,7 @@ export default function OnboardingPage() {
 
   function skipOnboarding() {
     if (getDataMode() === "supabase") {
-      setSaveError("Ajoutez un premier immeuble pour activer votre portefeuille Supabase.");
+      setSaveError("Ajoutez un premier immeuble pour activer votre portefeuille Nexbail.");
       return;
     }
 

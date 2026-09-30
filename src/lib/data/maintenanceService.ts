@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { createDataServiceError } from "@/lib/data/dataServiceError";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { MaintenanceAttachment, MaintenanceTicket, TicketPriority, TicketStatus } from "@/lib/types";
@@ -42,13 +43,17 @@ const deleteError = "Impossible de supprimer la demande d'entretien.";
 
 export async function getMaintenanceRequests(): Promise<MaintenanceTicket[]> {
   if (canUseSupabase()) {
-    const { data, error } = await supabase!
+    const { data, error, status, statusText } = await supabase!
       .from(table)
       .select(selectColumns)
       .order("reported_at", { ascending: false });
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      throw createDataServiceError(loadError, error, { status, statusText });
+    }
+
+    if (!data) {
+      throw createDataServiceError(loadError, undefined, { status, statusText });
     }
 
     return data.map(fromSupabaseRow);

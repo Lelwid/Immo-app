@@ -68,6 +68,7 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
 
     if (showLoading) {
       setLoading(true);
+      setError(null);
     }
 
     try {
@@ -161,7 +162,7 @@ export function usePortfolioSnapshot(options: { enabled?: boolean } = {}): Portf
     return () => window.removeEventListener(DATA_MODE_CHANGED_EVENT, handleDataModeChange);
   }, [applySnapshotLoad, configured, enabled, userId]);
 
-  const refresh = useCallback(() => applySnapshotLoad(() => refreshSnapshot(), false), [applySnapshotLoad]);
+  const refresh = useCallback(() => applySnapshotLoad(() => refreshSnapshot(), !snapshot), [applySnapshotLoad, snapshot]);
 
   const clearCache = useCallback(() => {
     clearPortfolioSnapshotCache();

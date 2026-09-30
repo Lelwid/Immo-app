@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { createDataServiceError } from "@/lib/data/dataServiceError";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { Tenant } from "@/lib/types";
@@ -32,15 +33,19 @@ const deleteError = "Impossible de supprimer le locataire.";
 export async function getTenants(): Promise<Tenant[]> {
   if (canUseSupabase()) {
     const userId = await getCurrentUserId(loadError);
-    const { data, error } = await supabase!
+    const { data, error, status, statusText } = await supabase!
       .from(table)
       .select("id,user_id,full_name,email,phone,notes,archived_at,created_at,updated_at")
       .eq("user_id", userId)
       .is("archived_at", null)
       .order("full_name", { ascending: true });
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      throw createDataServiceError(loadError, error, { status, statusText });
+    }
+
+    if (!data) {
+      throw createDataServiceError(loadError, undefined, { status, statusText });
     }
 
     return data.map(fromSupabaseRow);

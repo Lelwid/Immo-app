@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { createDataServiceError } from "@/lib/data/dataServiceError";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { Property } from "@/lib/types";
@@ -41,19 +42,23 @@ const createError = "Impossible de créer l'immeuble.";
 const updateError = "Impossible de modifier l'immeuble.";
 const deleteError = "Impossible de supprimer l'immeuble.";
 
-export async function getProperties(options: { archived?: boolean } = {}): Promise<Property[]> {
+export async function getProperties(options: { archived?: boolean; userId?: string } = {}): Promise<Property[]> {
   if (canUseSupabase()) {
-    const userId = await getCurrentUserId(loadError);
+    const userId = options.userId ?? await getCurrentUserId(loadError);
     let query = supabase!
       .from(table)
       .select(propertySelect)
       .eq("user_id", userId);
 
     query = options.archived ? query.not("archived_at", "is", null) : query.is("archived_at", null);
-    const { data, error } = await query.order("name");
+    const { data, error, status, statusText } = await query.order("name");
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      throw createDataServiceError(loadError, error, { status, statusText });
+    }
+
+    if (!data) {
+      throw createDataServiceError(loadError, undefined, { status, statusText });
     }
 
     return data.map(fromSupabaseRow);

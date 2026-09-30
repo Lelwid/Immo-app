@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { createDataServiceError } from "@/lib/data/dataServiceError";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { Property, Unit } from "@/lib/types";
@@ -40,10 +41,14 @@ export async function getUnits(propertyId?: string): Promise<Unit[]> {
       query = query.eq("property_id", propertyId);
     }
 
-    const { data, error } = await query;
+    const { data, error, status, statusText } = await query;
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      throw createDataServiceError(loadError, error, { status, statusText });
+    }
+
+    if (!data) {
+      throw createDataServiceError(loadError, undefined, { status, statusText });
     }
 
     return data.map(fromSupabaseRow).sort(compareUnitsNumerically);

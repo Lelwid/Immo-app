@@ -63,7 +63,7 @@ export async function getLeases(): Promise<Lease[]> {
       order: "start_date desc",
       selectedColumns: selectColumns,
     };
-    const { data, error } = await supabase!
+    const { data, error, status, statusText } = await supabase!
       .from(table)
       .select(selectColumns)
       .order("start_date", { ascending: false });
@@ -75,7 +75,7 @@ export async function getLeases(): Promise<Lease[]> {
         return getLeasesWithBaseColumns(queryContext);
       }
 
-      throw createLeaseServiceError(loadError, error);
+      throw createLeaseServiceError(loadError, error, { status, statusText });
     }
 
     if (!data) {
@@ -449,10 +449,12 @@ function isMissingOptionalLeaseColumnError(error: SupabaseErrorShape) {
   );
 }
 
-function createLeaseServiceError(message: string, cause?: unknown) {
+function createLeaseServiceError(message: string, cause?: unknown, metadata: { status?: number; statusText?: string } = {}) {
   const causeMessage = cause instanceof Error ? cause.message : typeof cause === "object" && cause !== null && "message" in cause ? String((cause as { message?: unknown }).message) : "";
   const error = new Error(process.env.NODE_ENV === "development" && causeMessage ? `${message} ${causeMessage}` : message);
-  (error as Error & { cause?: unknown }).cause = cause;
+  (error as Error & { cause?: unknown; status?: number; statusText?: string }).cause = cause;
+  (error as Error & { status?: number }).status = metadata.status;
+  (error as Error & { statusText?: string }).statusText = metadata.statusText;
   return error;
 }
 

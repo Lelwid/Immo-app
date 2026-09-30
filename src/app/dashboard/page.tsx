@@ -94,20 +94,20 @@ export default function DashboardPage() {
     }
   }
 
-  if (showLoader) {
-    return <DashboardSkeleton />;
-  }
-
   if (error && isSupabaseMode) {
     return (
       <section className="rounded-[18px] border border-[var(--border)] bg-[var(--surface)] p-6">
-        <h1 className="text-xl font-semibold">Impossible de charger les données du portefeuille.</h1>
-        <p className="mt-2 text-sm text-[var(--muted)]">Réessayez pour recharger les données Supabase.</p>
+        <h1 className="text-xl font-semibold">Impossible de charger vos données pour le moment.</h1>
+        <p className="mt-2 text-sm text-[var(--muted)]">Un problème temporaire est survenu. Veuillez réessayer dans quelques instants.</p>
         <button className="btn-primary mt-4" onClick={() => void refreshDashboard()} type="button">
           Réessayer
         </button>
       </section>
     );
+  }
+
+  if (showLoader) {
+    return <DashboardSkeleton />;
   }
 
   if (!store || !model || store.properties.length === 0) {

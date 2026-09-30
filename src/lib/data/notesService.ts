@@ -1,4 +1,5 @@
 import { shouldUseSupabase } from "@/lib/data/dataMode";
+import { createDataServiceError } from "@/lib/data/dataServiceError";
 import { loadLocalStore, saveLocalStore } from "@/lib/local-storage";
 import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 import type { AppNote, NoteTargetType } from "@/lib/types";
@@ -38,10 +39,14 @@ const deleteError = "Impossible de supprimer la note.";
 
 export async function getNotes(): Promise<AppNote[]> {
   if (canUseSupabase()) {
-    const { data, error } = await supabase!.from(table).select(selectColumns).order("updated_at", { ascending: false });
+    const { data, error, status, statusText } = await supabase!.from(table).select(selectColumns).order("updated_at", { ascending: false });
 
-    if (error || !data) {
-      throw new Error(loadError);
+    if (error) {
+      throw createDataServiceError(loadError, error, { status, statusText });
+    }
+
+    if (!data) {
+      throw createDataServiceError(loadError, undefined, { status, statusText });
     }
 
     return data.map(fromSupabaseRow);

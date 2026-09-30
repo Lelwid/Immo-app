@@ -63,7 +63,7 @@ const previewError = "Impossible de préparer l'aperçu du document.";
 
 export async function getDocuments(): Promise<PropertyDocument[]> {
   if (canUseSupabase()) {
-    const { data, error } = await supabase!
+    const { data, error, status, statusText } = await supabase!
       .from(table)
       .select(selectColumns)
       .order("uploaded_at", { ascending: false });
@@ -72,6 +72,8 @@ export async function getDocuments(): Promise<PropertyDocument[]> {
       throw createDocumentsServiceError(loadError, error, {
         operation: "select",
         selectedColumns: selectColumns,
+        status,
+        statusText,
         table,
       });
     }
@@ -580,6 +582,8 @@ function createDocumentsServiceError(
     filters?: string[];
     operation: string;
     selectedColumns?: string;
+    status?: number;
+    statusText?: string;
     table: string;
   },
 ) {
