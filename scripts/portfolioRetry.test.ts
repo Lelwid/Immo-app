@@ -35,6 +35,23 @@ test("stops after the configured retries for a persistent gateway failure", asyn
   assert.equal(calls, 3);
 });
 
+test("retries an isolated internal server error", async () => {
+  let calls = 0;
+  const value = await withTransientRetry(
+    async () => {
+      calls += 1;
+      if (calls === 1) {
+        throw Object.assign(new Error("Internal server error"), { status: 500 });
+      }
+      return "ok";
+    },
+    { delaysMs: [0, 0] },
+  );
+
+  assert.equal(value, "ok");
+  assert.equal(calls, 2);
+});
+
 test("does not retry authentication, permission, schema, validation, or cancelled requests", async () => {
   const failures = [
     Object.assign(new Error("Unauthorized"), { status: 401 }),

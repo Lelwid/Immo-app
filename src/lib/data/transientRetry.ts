@@ -11,7 +11,7 @@ type TransientRetryOptions = {
 };
 
 const defaultDelaysMs = [300, 900];
-const retryableStatuses = new Set([408, 429, 502, 503, 504, 520, 521, 522, 523, 524]);
+const retryableStatuses = new Set([408, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524]);
 const retryableCodes = new Set(["PGRST000", "PGRST001", "PGRST002", "PGRST003", "PGRSTX00", "57P01", "57P02", "57P03"]);
 const transientMessagePattern = /failed to fetch|network ?error|network request failed|load failed|connection (?:reset|closed|refused)|timed? ?out|timeout|temporar(?:y|ily) unavailable|bad gateway|gateway timeout/i;
 
