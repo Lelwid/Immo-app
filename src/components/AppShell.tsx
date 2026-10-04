@@ -124,7 +124,7 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
         collapsed ? "px-[15px]" : "px-3"
       }`}
     >
-      <div className={`relative flex gap-3 ${collapsed ? "-translate-x-2 flex-col items-center" : "items-center justify-between"}`}>
+      <div className={`relative flex gap-3 ${collapsed ? "flex-col items-center" : "items-center justify-between"}`}>
         <Link href="/dashboard" className={`flex min-w-0 items-center rounded-2xl py-1.5 ${collapsed ? "justify-center px-0" : "px-2"}`} aria-label="Nexbail — Tableau de bord">
           {collapsed ? (
             <NexbailBrand alt="Nexbail" className="h-12 w-12" priority variant="monogram" />
