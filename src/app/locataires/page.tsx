@@ -979,7 +979,7 @@ function EmptyState({ text }: { text: string }) {
 
 function TenantRentStatusBadge({ summary }: { summary: TenantRentStatusSummary }) {
   const classes = {
-    none: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+    none: "border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)]",
     paid: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
     paidAdvance: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
     partial: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",

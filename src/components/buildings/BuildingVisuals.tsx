@@ -250,7 +250,7 @@ function GridUnitCard({
     ? {
         label: "Vacant",
         dot: "bg-slate-500",
-        badge: "border-slate-500/30 bg-slate-500/10 text-slate-300",
+        badge: "border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)]",
       }
     : healthCopy[unit.health];
   const alertCount = unit.openTickets.length + (unit.paymentStatus === "late" ? 1 : 0);

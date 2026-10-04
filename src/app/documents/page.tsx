@@ -97,7 +97,7 @@ const documentStyle: Record<DocumentType, string> = {
   inspection: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
   assurance: "border-[color:var(--red)]/30 bg-[color:var(--red)]/10 text-[color:var(--red)]",
   paiement: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
-  autre: "border-violet-500/30 bg-violet-500/10 text-violet-300",
+  autre: "border-[color:var(--violet)]/35 bg-[color:var(--violet)]/10 text-[color:var(--violet)]",
 };
 
 export default function DocumentsPage() {

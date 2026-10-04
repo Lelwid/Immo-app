@@ -38,16 +38,16 @@ const filters: { icon: IconName; label: string; value: TicketFilter }[] = [
 ];
 
 const priorityClasses: Record<TicketPriority, string> = {
-  low: "border-slate-500/30 bg-slate-500/10 text-slate-300",
-  medium: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  high: "border-orange-500/30 bg-orange-500/10 text-orange-300",
-  urgent: "border-red-500/35 bg-red-500/10 text-red-300",
+  low: "border-[var(--border)] bg-[var(--surface-3)] text-[var(--muted)]",
+  medium: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
+  high: "border-[color:var(--orange)]/35 bg-[color:var(--orange)]/10 text-[color:var(--orange)]",
+  urgent: "border-[color:var(--red)]/35 bg-[color:var(--red)]/10 text-[color:var(--red)]",
 };
 
 const statusClasses: Record<TicketStatus, string> = {
-  open: "border-blue-500/30 bg-blue-500/10 text-blue-300",
-  inProgress: "border-amber-500/30 bg-amber-500/10 text-amber-300",
-  resolved: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300",
+  open: "border-[color:var(--accent)]/35 bg-[color:var(--accent)]/10 text-[color:var(--accent)]",
+  inProgress: "border-[color:var(--yellow)]/35 bg-[color:var(--yellow)]/10 text-[color:var(--yellow)]",
+  resolved: "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[color:var(--green)]",
 };
 
 export default function EntretienPage() {

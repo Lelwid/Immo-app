@@ -460,7 +460,7 @@ function RecentActivityTable({ activities, store }: { activities: UnitActivity[]
 
 function ActivityRow({ activity, store }: { activity: UnitActivity; store: LocalStore }) {
   return (
-    <tr className="transition hover:bg-white/[0.03]">
+    <tr className="transition hover:bg-[var(--surface-hover)]">
       <td className="min-w-0 px-3 py-3">
         <Link href={getActivityHref(activity)} className="group flex min-w-0 items-center gap-3">
           <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-bold ${getActivityIconClass(activity.type)}`}>
@@ -824,7 +824,7 @@ function getToneClasses(tone: DashboardTone) {
     purple: {
       card: "border-[#8b5cf6]/22",
       helper: "text-[var(--muted)]",
-      icon: "bg-[#8b5cf6]/18 text-[#a78bfa]",
+      icon: "bg-[color:var(--violet)]/18 text-[color:var(--violet)]",
       progress: "bg-[#8b5cf6]",
     },
     red: {
@@ -839,7 +839,7 @@ function getToneClasses(tone: DashboardTone) {
 
 function getActivityIconClass(type: UnitActivity["type"]) {
   if (type === "paiement") return "bg-[color:var(--green)]/14 text-[color:var(--green)]";
-  if (type === "bail") return "bg-[#8b5cf6]/18 text-[#a78bfa]";
+  if (type === "bail") return "bg-[color:var(--violet)]/18 text-[color:var(--violet)]";
   if (type === "entretien") return "bg-[color:var(--yellow)]/14 text-[color:var(--yellow)]";
   if (type === "document") return "bg-[color:var(--accent)]/14 text-[color:var(--accent)]";
   return "bg-[var(--surface-2)] text-[var(--muted)]";

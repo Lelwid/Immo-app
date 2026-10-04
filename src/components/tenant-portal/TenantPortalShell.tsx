@@ -33,14 +33,14 @@ export function TenantPortalShell({ children }: TenantPortalShellProps) {
   return (
     <main className="min-h-dvh bg-[radial-gradient(circle_at_top_right,rgba(37,99,235,0.14),transparent_34%),var(--background)] pb-[calc(6rem+env(safe-area-inset-bottom))] text-[var(--foreground)] md:pb-0">
       <div className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col md:grid md:grid-cols-[220px_minmax(0,1fr)]">
-        <aside className="hidden border-r border-[var(--border)]/70 bg-[#07101f]/95 px-4 py-5 md:flex md:flex-col">
+        <aside className="hidden border-r border-[var(--border)]/70 bg-[var(--sidebar)] px-4 py-5 text-[var(--foreground)] transition-colors md:flex md:flex-col">
           <TenantPortalBrand />
           <nav className="mt-8 grid gap-1">
             {tenantNavItems.map((item) => (
               <TenantNavLink key={item.href} item={item} pathname={pathname} />
             ))}
           </nav>
-          <div className="mt-auto rounded-lg border border-[var(--border)] bg-white/[0.03] p-3">
+          <div className="mt-auto rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] p-3">
             <p className="truncate text-sm font-semibold">{user?.email ?? "Accès locataire"}</p>
             <button className="mt-3 w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm font-semibold text-[var(--muted)] transition hover:text-[var(--foreground)]" onClick={() => void signOut()} type="button">
               Déconnexion
@@ -62,7 +62,7 @@ export function TenantPortalShell({ children }: TenantPortalShellProps) {
         </div>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[#07101f]/96 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 shadow-[0_-18px_42px_rgba(0,0,0,0.35)] md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[var(--border)] bg-[var(--sidebar)] px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 text-[var(--foreground)] shadow-[0_-18px_42px_rgba(0,0,0,0.25)] transition-colors md:hidden">
         <div className="mx-auto grid max-w-lg grid-cols-6 gap-1">
           {tenantNavItems.map((item) => (
             <TenantBottomNavLink key={item.href} item={item} pathname={pathname} />
@@ -80,7 +80,6 @@ function TenantPortalBrand({ compact = false }: { compact?: boolean }) {
         alt="Nexbail"
         className={compact ? "h-10 w-[123px]" : "h-[52px] w-[160px]"}
         priority
-        tone={compact ? "auto" : "dark"}
         variant="compact"
       />
       {compact ? <span className="hidden text-xs text-[var(--muted)] sm:block">Portail locataire</span> : null}
@@ -95,7 +94,7 @@ function TenantNavLink({ item, pathname }: { item: TenantNavItem; pathname: stri
     <Link
       href={item.href}
       className={`flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition ${
-        active ? "bg-[color:var(--accent)]/14 text-[color:var(--accent)] ring-1 ring-inset ring-[color:var(--accent)]/18" : "text-[var(--muted)] hover:bg-white/[0.04] hover:text-[var(--foreground)]"
+        active ? "bg-[color:var(--accent)]/14 text-[color:var(--accent)] ring-1 ring-inset ring-[color:var(--accent)]/18" : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
       }`}
     >
       <AppIcon name={item.icon} size={18} />

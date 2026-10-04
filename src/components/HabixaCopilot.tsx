@@ -105,7 +105,7 @@ export function HabixaCopilot() {
       </button>
 
       {open ? (
-        <section className="fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] top-2 z-[70] flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[#081120] shadow-[0_24px_80px_rgba(0,0,0,0.42)] sm:inset-auto sm:bottom-5 sm:right-5 sm:max-h-[min(720px,calc(100dvh-2.5rem))] sm:w-[min(430px,calc(100vw-2rem))]">
+        <section className="fixed inset-x-2 bottom-[max(0.5rem,env(safe-area-inset-bottom))] top-2 z-[70] flex min-w-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-[0_24px_80px_rgba(0,0,0,0.42)] transition-colors sm:inset-auto sm:bottom-5 sm:right-5 sm:max-h-[min(720px,calc(100dvh-2.5rem))] sm:w-[min(430px,calc(100vw-2rem))]">
           <header className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[color:var(--accent)]/18 text-[color:var(--accent)]">
@@ -118,7 +118,7 @@ export function HabixaCopilot() {
             </div>
             <button
               aria-label="Fermer Nexbail Copilot"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-[var(--foreground)]"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
               onClick={() => setOpen(false)}
               type="button"
             >
@@ -133,7 +133,7 @@ export function HabixaCopilot() {
                   className={`min-w-0 max-w-[86%] break-words rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
                     message.role === "user"
                       ? "bg-[color:var(--accent)] text-white"
-                      : "border border-[var(--border)] bg-white/[0.04] text-[var(--foreground)]"
+                      : "border border-[var(--border)] bg-[var(--surface-2)] text-[var(--foreground)]"
                   }`}
                 >
                   {message.role === "assistant" ? <CopilotMarkdown content={message.content} /> : message.content}
@@ -142,7 +142,7 @@ export function HabixaCopilot() {
             ))}
             {sending ? (
               <div className="flex justify-start">
-                <div className="rounded-2xl border border-[var(--border)] bg-white/[0.04] px-3.5 py-2.5 text-sm text-[var(--muted)]">Analyse en cours...</div>
+                <div className="rounded-2xl border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2.5 text-sm text-[var(--muted)]">Analyse en cours...</div>
               </div>
             ) : null}
           </div>
@@ -153,7 +153,7 @@ export function HabixaCopilot() {
                 {suggestions.map((suggestion) => (
                   <button
                     key={suggestion}
-                    className="rounded-full border border-[var(--border)] bg-white/[0.03] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
+                    className="rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                     disabled={sending}
                     onClick={() => void handleSubmit(suggestion)}
                     type="button"
@@ -163,7 +163,7 @@ export function HabixaCopilot() {
                 ))}
               </div>
             ) : null}
-            {error ? <p className="mb-2 text-xs font-semibold text-red-300">{error}</p> : null}
+            {error ? <p className="mb-2 text-xs font-semibold text-[color:var(--red)]">{error}</p> : null}
             {isSupabaseMode && snapshotLoading ? <p className="mb-2 text-xs text-[var(--muted)]">Le portefeuille se charge; le Copilot vérifiera les données côté serveur.</p> : null}
             <form
               className="flex items-end gap-2"
@@ -173,7 +173,7 @@ export function HabixaCopilot() {
               }}
             >
               <textarea
-                className="min-h-[44px] flex-1 resize-none rounded-xl border border-[var(--border)] bg-[#050b15] px-3 py-2 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted)] focus:border-[color:var(--accent)]"
+                className="min-h-[44px] flex-1 resize-none rounded-xl border border-[var(--border)] bg-[var(--input-background)] px-3 py-2 text-sm text-[var(--foreground)] outline-none transition placeholder:text-[var(--muted)] focus:border-[color:var(--accent)]"
                 onChange={(event) => setInput(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {

@@ -120,7 +120,7 @@ export function AppShell({ children }: AppShellProps) {
 function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boolean; onToggleCollapsed: () => void; pathname: string }) {
   return (
     <aside
-      className={`hidden w-[var(--sidebar-width)] max-w-full min-w-0 overflow-x-visible border-r border-[var(--border)]/70 bg-[#07101f]/95 py-5 transition-[padding,width] duration-200 ease-out lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col ${
+      className={`hidden w-[var(--sidebar-width)] max-w-full min-w-0 overflow-x-visible border-r border-[var(--border)]/70 bg-[var(--sidebar)] py-5 text-[var(--foreground)] transition-[background-color,padding,width] duration-200 ease-out lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col ${
         collapsed ? "px-[15px]" : "px-3"
       }`}
     >
@@ -129,13 +129,13 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
           {collapsed ? (
             <NexbailBrand alt="Nexbail" className="h-12 w-12" priority variant="monogram" />
           ) : (
-            <NexbailBrand alt="Nexbail" className="h-[54px] w-[166px]" priority tone="dark" variant="compact" />
+            <NexbailBrand alt="Nexbail" className="h-[54px] w-[166px]" priority variant="compact" />
           )}
         </Link>
 
         <button
           aria-label={collapsed ? "Ouvrir la sidebar" : "Réduire la sidebar"}
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-white/[0.03] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:text-[var(--foreground)]"
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface-subtle)] text-[var(--muted)] transition hover:border-[color:var(--accent)]/60 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
           onClick={onToggleCollapsed}
           title={collapsed ? "Ouvrir" : "Réduire"}
           type="button"
@@ -170,7 +170,7 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
                       } ${
                         active
                           ? "bg-[color:var(--accent)]/14 text-[color:var(--accent)] ring-1 ring-inset ring-[color:var(--accent)]/18"
-                          : "text-[var(--muted)] hover:bg-white/[0.04] hover:text-[var(--foreground)]"
+                          : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)]"
                       }`}
                     >
                       <span className="flex h-6 w-6 shrink-0 items-center justify-center">
@@ -203,7 +203,7 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
       </nav>
 
       <div
-        className={`mt-6 overflow-hidden rounded-xl border border-[var(--border)] bg-white/[0.03] transition-[max-height,opacity,padding] duration-200 ${
+        className={`mt-6 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-subtle)] transition-[background-color,max-height,opacity,padding] duration-200 ${
           collapsed ? "max-h-0 p-0 opacity-0" : "max-h-40 p-3 opacity-100"
         }`}
       >
