@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { NexbailBrand } from "@/components/NexbailBrand";
-import { DEMO_AUTH_KEY, type SignUpOutcome, useAuth } from "@/lib/auth/AuthProvider";
+import { DEMO_AUTH_KEY, type SignUpOutcome, type SignUpResult, useAuth } from "@/lib/auth/AuthProvider";
 
 type AuthMode = "connexion" | "inscription" | "reset";
 
@@ -43,7 +43,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     setMessage("");
     setSignupOutcome(null);
 
-    const result: { error?: string; outcome?: SignUpOutcome } = isPasswordUpdate
+    const result: SignUpResult = isPasswordUpdate
       ? await updatePassword(password)
       : isReset
         ? await resetPassword(email)
@@ -54,7 +54,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     setSubmitting(false);
 
     if (result.error) {
-      if (isSignup && isAmbiguousSignupError(result.error)) {
+      if (isSignup && isAmbiguousSignupError(result.error, result.errorCode)) {
         showNeutralSignupResult("indeterminate");
         return;
       }
@@ -92,7 +92,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
       setMessageTone("info");
       setSignupOutcome(outcome);
       setMessage(
-        "Votre demande a été prise en compte. Pour protéger la confidentialité des comptes, nous ne pouvons pas confirmer si cette adresse est déjà inscrite. Si vous recevez un courriel, suivez les instructions qu’il contient.",
+        "Nous ne pouvons pas confirmer le résultat de cette demande. Si vous recevez un courriel, suivez les instructions qu’il contient. Vous pouvez aussi utiliser l’une des options ci-dessous.",
       );
     }
   }
@@ -348,7 +348,14 @@ function getFriendlyAuthError(error: string, mode: AuthMode) {
   return "Impossible de vous connecter. Réessayez dans quelques instants.";
 }
 
-function isAmbiguousSignupError(error: string) {
+function isAmbiguousSignupError(error: string, errorCode?: string) {
   const normalized = error.toLowerCase();
-  return normalized.includes("user already registered") || normalized.includes("already been registered") || normalized.includes("user_already_exists") || normalized.includes("email_exists");
+  return (
+    errorCode === "over_email_send_rate_limit" ||
+    normalized.includes("user already registered") ||
+    normalized.includes("already been registered") ||
+    normalized.includes("user_already_exists") ||
+    normalized.includes("email_exists") ||
+    (normalized.includes("security purposes") && normalized.includes("request this after"))
+  );
 }

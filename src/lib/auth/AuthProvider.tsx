@@ -17,7 +17,7 @@ type AuthContextValue = {
   session: Session | null;
   user: User | null;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
-  signUpWithEmail: (email: string, password: string, redirectPath?: string) => Promise<{ error?: string; outcome?: SignUpOutcome }>;
+  signUpWithEmail: (email: string, password: string, redirectPath?: string) => Promise<SignUpResult>;
   signInWithGoogle: (redirectPath?: string) => Promise<{ error?: string }>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   updatePassword: (password: string) => Promise<{ error?: string }>;
@@ -25,6 +25,7 @@ type AuthContextValue = {
 };
 
 export type SignUpOutcome = "signed_in" | "verification_pending" | "indeterminate";
+export type SignUpResult = { error?: string; errorCode?: string; outcome?: SignUpOutcome };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
@@ -154,7 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
 
         if (error) {
-          return { error: error.message };
+          return { error: error.message, errorCode: error.code };
         }
 
         if (data.session?.user) {
