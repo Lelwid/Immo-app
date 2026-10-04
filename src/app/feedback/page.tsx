@@ -31,17 +31,17 @@ export default function FeedbackPage() {
 
   return (
     <RouteShell title="Donner mon avis" description="Partagez un commentaire ou signalez un problème pendant la bêta privée.">
-      <form className="mx-auto grid max-w-2xl gap-4 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-5" onSubmit={submit}>
+      <form className="grid w-full max-w-2xl gap-5 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-5 sm:p-6" onSubmit={submit}>
         <label className="grid gap-2 text-sm font-medium text-[var(--muted)]">
           Type de message
-          <select className="rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)]" value={category} onChange={(event) => setCategory(event.target.value === "problem" ? "problem" : "feedback")}>
+          <select className="min-h-11 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)]" value={category} onChange={(event) => setCategory(event.target.value === "problem" ? "problem" : "feedback")}>
             <option value="feedback">Commentaire</option>
             <option value="problem">Signaler un problème</option>
           </select>
         </label>
         <label className="grid gap-2 text-sm font-medium text-[var(--muted)]">
           Message
-          <textarea className="min-h-40 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)]" maxLength={4000} minLength={10} required value={message} onChange={(event) => setMessage(event.target.value)} />
+          <textarea className="min-h-48 rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-[var(--foreground)] outline-none focus:border-[color:var(--accent)] sm:min-h-52" maxLength={4000} minLength={10} required value={message} onChange={(event) => setMessage(event.target.value)} />
         </label>
         {status ? <p aria-live="polite" className="text-sm text-[var(--muted)]">{status}</p> : null}
         <button className="btn-primary justify-self-start disabled:cursor-not-allowed disabled:opacity-50" disabled={saving || message.trim().length < 10} type="submit">{saving ? "Envoi…" : "Envoyer"}</button>
