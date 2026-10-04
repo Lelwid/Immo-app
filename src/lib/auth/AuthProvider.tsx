@@ -5,29 +5,33 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type R
 import { clearPortfolioSnapshotCache } from "@/lib/data/portfolioSnapshotService";
 import { setDataMode } from "@/lib/data/dataMode";
 import { ONBOARDING_TRANSITION_KEY } from "@/lib/onboardingDecision";
-import { isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
+import { getPublicAuthProviders, isSupabaseConfigured, supabase } from "@/lib/supabaseClient";
 
 export const DEMO_AUTH_KEY = "demoAuth";
 
 type AuthContextValue = {
   configured: boolean;
+  googleEnabled: boolean;
   loading: boolean;
   passwordRecovery: boolean;
   session: Session | null;
   user: User | null;
   signInWithEmail: (email: string, password: string) => Promise<{ error?: string }>;
-  signUpWithEmail: (email: string, password: string, redirectPath?: string) => Promise<{ error?: string; confirmationRequired?: boolean }>;
+  signUpWithEmail: (email: string, password: string, redirectPath?: string) => Promise<{ error?: string; outcome?: SignUpOutcome }>;
   signInWithGoogle: (redirectPath?: string) => Promise<{ error?: string }>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   updatePassword: (password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
 };
 
+export type SignUpOutcome = "signed_in" | "verification_pending" | "indeterminate";
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [googleEnabled, setGoogleEnabled] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const sessionUserIdRef = useRef<string | null>(null);
 
@@ -99,9 +103,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      return;
+    }
+
+    let cancelled = false;
+    void getPublicAuthProviders()
+      .then((providers) => {
+        if (!cancelled) {
+          setGoogleEnabled(providers.google);
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("Impossible de vérifier la disponibilité de Google Auth.", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       configured: isSupabaseConfigured,
+      googleEnabled,
       loading,
       passwordRecovery,
       session,
@@ -133,13 +159,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         if (data.session?.user) {
           setDataMode("supabase");
+          return { outcome: "signed_in" };
         }
 
-        return { confirmationRequired: !data.session };
+        if (data.user?.identities?.length) {
+          return { outcome: "verification_pending" };
+        }
+
+        return { outcome: "indeterminate" };
       },
       async signInWithGoogle(redirectPath = "/dashboard") {
         if (!supabase) {
           return { error: "Le service de connexion n’est pas disponible pour le moment." };
+        }
+
+        if (!googleEnabled) {
+          return { error: "La connexion avec Google n’est pas disponible pour le moment." };
         }
 
         setDataMode("supabase");
@@ -179,7 +214,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession(null);
       },
     }),
-    [loading, passwordRecovery, session],
+    [googleEnabled, loading, passwordRecovery, session],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

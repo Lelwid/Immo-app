@@ -4,19 +4,20 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { NexbailBrand } from "@/components/NexbailBrand";
-import { DEMO_AUTH_KEY, useAuth } from "@/lib/auth/AuthProvider";
+import { DEMO_AUTH_KEY, type SignUpOutcome, useAuth } from "@/lib/auth/AuthProvider";
 
 type AuthMode = "connexion" | "inscription" | "reset";
 
 export function AuthCard({ mode }: { mode: AuthMode }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { configured, loading, passwordRecovery, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail, updatePassword } = useAuth();
+  const { configured, googleEnabled, loading, passwordRecovery, resetPassword, signInWithEmail, signInWithGoogle, signUpWithEmail, updatePassword } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirmation, setPasswordConfirmation] = useState("");
   const [message, setMessage] = useState("");
-  const [messageTone, setMessageTone] = useState<"error" | "success">("success");
+  const [messageTone, setMessageTone] = useState<"error" | "info" | "success">("success");
+  const [signupOutcome, setSignupOutcome] = useState<SignUpOutcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const isReset = mode === "reset";
   const isSignup = mode === "inscription";
@@ -40,8 +41,9 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
 
     setSubmitting(true);
     setMessage("");
+    setSignupOutcome(null);
 
-    const result: { error?: string; confirmationRequired?: boolean } = isPasswordUpdate
+    const result: { error?: string; outcome?: SignUpOutcome } = isPasswordUpdate
       ? await updatePassword(password)
       : isReset
         ? await resetPassword(email)
@@ -52,6 +54,11 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     setSubmitting(false);
 
     if (result.error) {
+      if (isSignup && isAmbiguousSignupError(result.error)) {
+        showNeutralSignupResult("indeterminate");
+        return;
+      }
+
       setMessageTone("error");
       setMessage(getFriendlyAuthError(result.error, mode));
       return;
@@ -70,9 +77,8 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     }
 
     if (isSignup) {
-      if (result.confirmationRequired) {
-        setMessageTone("success");
-        setMessage("Vérifiez votre courriel pour confirmer votre compte, puis revenez dans Nexbail.");
+      if (result.outcome !== "signed_in") {
+        showNeutralSignupResult(result.outcome ?? "indeterminate");
         return;
       }
 
@@ -81,6 +87,14 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     }
 
     router.replace(redirectPath);
+
+    function showNeutralSignupResult(outcome: SignUpOutcome) {
+      setMessageTone("info");
+      setSignupOutcome(outcome);
+      setMessage(
+        "Votre demande a été prise en compte. Pour protéger la confidentialité des comptes, nous ne pouvons pas confirmer si cette adresse est déjà inscrite. Si vous recevez un courriel, suivez les instructions qu’il contient.",
+      );
+    }
   }
 
   async function loginGoogle() {
@@ -151,7 +165,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
           </form>
         )}
 
-        {!isReset ? (
+        {!isReset && googleEnabled ? (
           <button className="btn-secondary mt-3 w-full" disabled={submitting} onClick={loginGoogle} type="button">
             Continuer avec Google
           </button>
@@ -169,12 +183,25 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
             className={`mt-4 rounded-lg border p-3 text-sm ${
               messageTone === "error"
                 ? "border-[color:var(--red)]/40 bg-[color:var(--red)]/10 text-[color:var(--red)]"
-                : "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[var(--foreground)]"
+                : messageTone === "info"
+                  ? "border-[color:var(--accent)]/35 bg-[color:var(--accent)]/10 text-[var(--foreground)]"
+                  : "border-[color:var(--green)]/35 bg-[color:var(--green)]/10 text-[var(--foreground)]"
             }`}
             role={messageTone === "error" ? "alert" : "status"}
           >
             {message}
           </p>
+        ) : null}
+
+        {isSignup && signupOutcome ? (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <Link className="btn-primary inline-flex justify-center" href={redirectPath === "/onboarding" ? "/connexion" : `/connexion?redirect=${encodeURIComponent(redirectPath)}`}>
+              Se connecter
+            </Link>
+            <Link className="btn-secondary inline-flex justify-center" href="/mot-de-passe-oublie">
+              Mot de passe oublié
+            </Link>
+          </div>
         ) : null}
 
         {isPasswordUpdate && messageTone === "success" && message ? (
@@ -196,14 +223,14 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
                 Mot de passe oublié ?
               </Link>
             </>
-          ) : (
+          ) : !signupOutcome ? (
             <Link
               className="font-semibold text-[color:var(--accent)] hover:underline"
               href={redirectPath === "/onboarding" ? "/connexion" : `/connexion?redirect=${encodeURIComponent(redirectPath)}`}
             >
               Retour à la connexion
             </Link>
-          )}
+          ) : null}
         </div>
         <p className="mt-6 border-t border-[var(--border)] pt-4 text-xs text-[var(--muted)]">
           En utilisant Nexbail, vous acceptez les <Link className="underline" href="/conditions">conditions d’utilisation</Link> et reconnaissez la <Link className="underline" href="/confidentialite">politique de confidentialité</Link>.
@@ -302,10 +329,6 @@ function getFriendlyAuthError(error: string, mode: AuthMode) {
     return "Confirmez votre courriel avant de vous connecter.";
   }
 
-  if (normalized.includes("user already registered") || normalized.includes("already been registered")) {
-    return "Un compte existe déjà avec ce courriel. Essayez de vous connecter.";
-  }
-
   if (normalized.includes("password") && (normalized.includes("short") || normalized.includes("least"))) {
     return "Le mot de passe ne respecte pas les exigences de sécurité.";
   }
@@ -323,4 +346,9 @@ function getFriendlyAuthError(error: string, mode: AuthMode) {
   }
 
   return "Impossible de vous connecter. Réessayez dans quelques instants.";
+}
+
+function isAmbiguousSignupError(error: string) {
+  const normalized = error.toLowerCase();
+  return normalized.includes("user already registered") || normalized.includes("already been registered") || normalized.includes("user_already_exists") || normalized.includes("email_exists");
 }
