@@ -124,7 +124,7 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
         collapsed ? "px-[15px]" : "px-3"
       }`}
     >
-      <div className={`relative flex gap-3 ${collapsed ? "flex-col items-center" : "items-center justify-between"}`}>
+      <div className={`relative flex gap-3 ${collapsed ? "w-full flex-col items-center" : "items-center justify-between"}`}>
         <Link href="/dashboard" className={`flex min-w-0 items-center rounded-2xl py-1.5 ${collapsed ? "justify-center px-0" : "px-2"}`} aria-label="Nexbail — Tableau de bord">
           {collapsed ? (
             <NexbailBrand alt="Nexbail" className="h-12 w-12" priority variant="monogram" />
@@ -147,7 +147,7 @@ function AppSidebar({ collapsed, onToggleCollapsed, pathname }: { collapsed: boo
       <nav className={`custom-scrollbar min-h-0 flex-1 ${collapsed ? "-mx-[15px] mt-6 w-[var(--sidebar-collapsed-width)] overflow-visible" : "mt-8 overflow-y-auto pr-1"}`}>
         <div className={collapsed ? "grid w-full justify-items-center gap-3.5" : "grid gap-7"}>
           {sidebarGroups.map((group) => (
-            <div key={group.label} className={collapsed ? "w-full" : undefined}>
+            <div key={group.label} className={collapsed ? "w-full min-w-0" : undefined}>
               <p
                 className={`px-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)] transition-[height,opacity] duration-200 ${
                   collapsed ? "h-0 overflow-hidden opacity-0" : "h-4 opacity-100"
