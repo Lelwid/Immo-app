@@ -54,8 +54,16 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
     setSubmitting(false);
 
     if (result.error) {
-      if (isSignup && isAmbiguousSignupError(result.error, result.errorCode)) {
-        showNeutralSignupResult("indeterminate");
+      if (isSignup && isSignupRateLimitError(result.error, result.errorCode)) {
+        showSignupResult(
+          "indeterminate",
+          "Trop de demandes ont été effectuées récemment. Attendez quelques instants avant de réessayer, ou utilisez l’une des options ci-dessous.",
+        );
+        return;
+      }
+
+      if (isSignup && isExistingAccountError(result.error)) {
+        showSignupResult("indeterminate");
         return;
       }
 
@@ -78,7 +86,7 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
 
     if (isSignup) {
       if (result.outcome !== "signed_in") {
-        showNeutralSignupResult(result.outcome ?? "indeterminate");
+        showSignupResult(result.outcome ?? "indeterminate");
         return;
       }
 
@@ -88,11 +96,14 @@ export function AuthCard({ mode }: { mode: AuthMode }) {
 
     router.replace(redirectPath);
 
-    function showNeutralSignupResult(outcome: SignUpOutcome) {
-      setMessageTone("info");
+    function showSignupResult(outcome: SignUpOutcome, messageOverride?: string) {
+      setMessageTone(outcome === "verification_pending" ? "success" : "info");
       setSignupOutcome(outcome);
       setMessage(
-        "Nous ne pouvons pas confirmer le résultat de cette demande. Si vous recevez un courriel, suivez les instructions qu’il contient. Vous pouvez aussi utiliser l’une des options ci-dessous.",
+        messageOverride ??
+          (outcome === "verification_pending"
+            ? "Un courriel de confirmation vous a été envoyé. Consultez votre boîte de réception pour terminer la création de votre compte."
+            : "Cette adresse est déjà utilisée. Connectez-vous ou utilisez « Mot de passe oublié » pour accéder à votre compte."),
       );
     }
   }
@@ -348,14 +359,17 @@ function getFriendlyAuthError(error: string, mode: AuthMode) {
   return "Impossible de vous connecter. Réessayez dans quelques instants.";
 }
 
-function isAmbiguousSignupError(error: string, errorCode?: string) {
+function isExistingAccountError(error: string) {
   const normalized = error.toLowerCase();
   return (
-    errorCode === "over_email_send_rate_limit" ||
     normalized.includes("user already registered") ||
     normalized.includes("already been registered") ||
     normalized.includes("user_already_exists") ||
-    normalized.includes("email_exists") ||
-    (normalized.includes("security purposes") && normalized.includes("request this after"))
+    normalized.includes("email_exists")
   );
+}
+
+function isSignupRateLimitError(error: string, errorCode?: string) {
+  const normalized = error.toLowerCase();
+  return errorCode === "over_email_send_rate_limit" || (normalized.includes("security purposes") && normalized.includes("request this after"));
 }
